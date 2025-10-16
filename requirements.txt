@@ -1,0 +1,13 @@
+# Image to 8-bit Melody Converter - Requirements
+
+# Image Processing
+Pillow>=10.0.0
+
+# Numerical Computing
+numpy>=1.24.0
+
+# MIDI File Generation
+MIDIUtil>=1.2.1
+
+# Audio Playback
+pygame>=2.5.0
