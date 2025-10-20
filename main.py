@@ -5,6 +5,7 @@ Redesigned Pixel-style UI - Single Screen Mode
 """
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from tkinter import font as tkfont
 from PIL import Image, ImageTk
 import threading
 import os
@@ -37,7 +38,7 @@ class Image2MelodyApp:
         self.current_image_path = None
         self.current_image = None
         self.pixelated_image = None
-        self.pixel_size = 70  # 增大像素方块 (从50改为120)
+        self.pixel_size = 80  # 像素方块大小
         
         # Animation state
         self.is_animating = False
@@ -55,12 +56,97 @@ class Image2MelodyApp:
         # 初始化音频系统
         self.init_audio()
         
-        self.pixel_font_large = ("Courier", 24, "bold")
-        self.pixel_font_medium = ("Courier", 18, "bold")
-        self.pixel_font_small = ("Courier", 12, "bold")
+        # 加载像素字体
+        self.load_pixel_font()
         
         self.setup_ui()
         self.setup_keyboard_bindings()
+    
+    def load_pixel_font(self):
+        """加载像素风格字体 Jersey10-Regular.ttf"""
+        # 在macOS上，tkinter对自定义TTF字体支持有限
+        # 尝试多种方法加载字体
+        
+        # 方法1: 尝试使用已安装的 Jersey10 字体
+        jersey_font_names = [
+            "Jersey 10",           # 系统识别名称（已确认，带空格！）
+            "Jersey10",            # 无空格版本
+            "Jersey 10 Regular",   # 完整名称
+            "Jersey10-Regular",    # 连字符版本
+        ]
+        
+        for font_name in jersey_font_names:
+            try:
+                test_font = tkfont.Font(family=font_name, size=16)
+                self.pixel_font_large = (font_name, 32, "normal")
+                self.pixel_font_medium = (font_name, 24, "normal")
+                self.pixel_font_small = (font_name, 16, "normal")
+                print(f"✓ Using {font_name} font")
+                return
+            except:
+                continue
+        
+        # 方法2: 尝试 Silkscreen（备用）
+        print("⚠ Jersey 10 not found, trying Silkscreen...")
+        silkscreen_font_names = [
+            "Silkscreen",
+            "Silkscreen Regular",
+        ]
+        
+        for font_name in silkscreen_font_names:
+            try:
+                test_font = tkfont.Font(family=font_name, size=16)
+                self.pixel_font_large = (font_name, 32, "normal")
+                self.pixel_font_medium = (font_name, 24, "normal")
+                self.pixel_font_small = (font_name, 16, "normal")
+                print(f"✓ Using {font_name} font (alternative)")
+                return
+            except:
+                continue
+        
+        # 方法3: 尝试 Jersey10 Charted（备用）
+        print("⚠ Trying Jersey10 Charted...")
+        jersey_charted_names = [
+            "Jersey 10 Charted",
+            "Jersey10 Charted",
+        ]
+        
+        for font_name in jersey_charted_names:
+            try:
+                test_font = tkfont.Font(family=font_name, size=16)
+                self.pixel_font_large = (font_name, 32, "normal")
+                self.pixel_font_medium = (font_name, 24, "normal")
+                self.pixel_font_small = (font_name, 16, "normal")
+                print(f"✓ Using {font_name} font (alternative)")
+                return
+            except:
+                continue
+        
+        # 方法4: 使用macOS上可用的像素风格等宽字体
+        print("⚠ Pixel fonts not found, trying system fonts...")
+        pixel_fonts = [
+            "Monaco",      # macOS内置，像素风格
+            "Menlo",       # macOS内置，清晰等宽
+            "Courier New", # 跨平台
+            "Courier"      # 备用
+        ]
+        
+        for font_name in pixel_fonts:
+            try:
+                test_font = tkfont.Font(family=font_name, size=16)
+                self.pixel_font_large = (font_name, 32, "bold")
+                self.pixel_font_medium = (font_name, 24, "bold")
+                self.pixel_font_small = (font_name, 16, "normal")
+                print(f"✓ Using {font_name} font (system font)")
+                return
+            except:
+                continue
+        
+        # 最后备用
+        print(f"⚠ Using default Courier font")
+        self.pixel_font_large = ("Courier", 24, "bold")
+        self.pixel_font_medium = ("Courier", 18, "bold")
+        self.pixel_font_small = ("Courier", 12, "bold")
     
     def setup_ui(self):
         """Setup pixel-style UI"""
@@ -194,9 +280,11 @@ class Image2MelodyApp:
         )
         
         self.image_canvas.tag_bind("load_button", "<Enter>", 
-            lambda e: self.image_canvas.itemconfig(self.load_button_rect, fill=self.bg_medium))
+            lambda e: [self.image_canvas.itemconfig(self.load_button_rect, fill=self.bg_medium),
+                      self.image_canvas.config(cursor="hand2")])
         self.image_canvas.tag_bind("load_button", "<Leave>", 
-            lambda e: self.image_canvas.itemconfig(self.load_button_rect, fill=self.bg_light))
+            lambda e: [self.image_canvas.itemconfig(self.load_button_rect, fill=self.bg_light),
+                      self.image_canvas.config(cursor="")])
     
     def on_canvas_click(self, event):
         """Canvas click event"""
@@ -544,8 +632,15 @@ class Image2MelodyApp:
             tags="reload_button"
         )
         
-        # 绑定保存按钮
+        # 绑定保存按钮点击和光标效果
         self.image_canvas.tag_bind("save_button", "<Button-1>", lambda e: self.save_melody())
+        self.image_canvas.tag_bind("save_button", "<Enter>", lambda e: self.image_canvas.config(cursor="hand2"))
+        self.image_canvas.tag_bind("save_button", "<Leave>", lambda e: self.image_canvas.config(cursor=""))
+        
+        # 绑定 LOAD NEW 按钮点击和光标效果
+        self.image_canvas.tag_bind("reload_button", "<Button-1>", lambda e: self.reset_and_load())
+        self.image_canvas.tag_bind("reload_button", "<Enter>", lambda e: self.image_canvas.config(cursor="hand2"))
+        self.image_canvas.tag_bind("reload_button", "<Leave>", lambda e: self.image_canvas.config(cursor=""))
     
     def save_melody(self):
         """保存生成的旋律为MIDI文件"""
@@ -578,6 +673,9 @@ class Image2MelodyApp:
         self.melody_generator.clear_recorded_notes()  # 清空录制的音符
         self.draw_load_button()
         self.status_bar.config(text="[ READY ] LOAD IMAGE TO START")
+        
+        # 自动打开文件选择对话框
+        self.root.after(100, self.load_image)
 
 
 def main():

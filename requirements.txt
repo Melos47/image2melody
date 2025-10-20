@@ -11,3 +11,6 @@ MIDIUtil>=1.2.1
 
 # Audio Playback
 pygame>=2.5.0
+
+# Font Loading
+pyglet>=2.0.0
