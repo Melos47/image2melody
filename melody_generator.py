@@ -1,49 +1,159 @@
 """
 Melody Generator Module
 将RGB值转换为8-bit风格的音乐旋律
+基于HSV（色相、饱和度、明度）生成音符
+使用pygame.mixer直接生成波形声音（无需MIDI设备）
 """
 from midiutil import MIDIFile
 import pygame
 import numpy as np
 import tempfile
 import os
+import colorsys
 
 
 class MelodyGenerator:
     def __init__(self):
         self.midi_file = None
         self.notes = []
-        self.tempo = 120  # BPM
+        self.tempo = 160  # BPM - 8-bit风格通常更快
         self.temp_midi_path = None
+        self.recorded_notes = []  # 记录所有播放的音符
         
-        # 初始化pygame mixer用于播放
-        pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+        # 初始化pygame mixer用于直接播放波形音频（无需MIDI）
+        try:
+            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            self.audio_initialized = True
+            print("✓ Audio initialized successfully")
+        except Exception as e:
+            self.audio_initialized = False
+            print(f"✗ Audio initialization failed: {e}")
         
-        # 音阶定义 (C大调的音符)
-        self.scale_notes = [60, 62, 64, 65, 67, 69, 71, 72]  # C, D, E, F, G, A, B, C (MIDI note numbers)
+        # 音阶定义 - 8-bit游戏风格的五声音阶
+        # 使用C大调五声音阶: C, D, E, G, A
+        self.pentatonic_scale = [60, 62, 64, 67, 69, 72, 74, 76]  # C4, D4, E4, G4, A4, C5, D5, E5
         
-    def rgb_to_note(self, r, g, b):
+        # 完整音阶用于更复杂的旋律
+        self.full_scale = [60, 62, 64, 65, 67, 69, 71, 72]  # C, D, E, F, G, A, B, C (MIDI note numbers)
+    
+    def generate_square_wave(self, frequency, duration, volume=0.5):
         """
-        将RGB值转换为音符参数
-        R: 决定音高 (0-255 -> 音阶中的音符)
-        G: 决定时长 (0-255 -> 0.25-2.0 拍)
-        B: 决定力度 (0-255 -> 60-127 velocity)
+        生成8-bit风格的方波音频（无需MIDI设备）
+        frequency: 频率（Hz）
+        duration: 持续时间（秒）
+        volume: 音量（0.0-1.0）
         """
-        # 音高: 映射R值到音阶
-        pitch_index = int((r / 255.0) * (len(self.scale_notes) - 1))
-        pitch = self.scale_notes[pitch_index]
+        sample_rate = 22050
+        num_samples = int(sample_rate * duration)
         
-        # 可选：添加八度变化以增加音域
-        octave_shift = (r % 32) // 16  # 0, 1, 或 2 个八度
-        pitch += octave_shift * 12
+        # 生成方波（8-bit经典声音）
+        t = np.linspace(0, duration, num_samples, False)
+        wave = np.sign(np.sin(2 * np.pi * frequency * t))
         
-        # 时长: 映射G值到节拍长度
-        duration = 0.25 + (g / 255.0) * 1.75  # 0.25到2.0拍
+        # 应用音量和添加淡出效果（防止爆音）
+        fade_length = int(sample_rate * 0.01)  # 10ms淡出
+        fade_out = np.ones(num_samples)
+        if fade_length < num_samples:
+            fade_out[-fade_length:] = np.linspace(1, 0, fade_length)
+        wave = wave * fade_out * volume
         
-        # 力度: 映射B值到MIDI velocity
-        velocity = 60 + int((b / 255.0) * 67)  # 60到127
+        # 转换为16位整数
+        wave = (wave * 32767).astype(np.int16)
+        
+        # 创建立体声
+        stereo_wave = np.column_stack((wave, wave))
+        
+        return pygame.sndarray.make_sound(stereo_wave)
+    
+    def midi_note_to_frequency(self, midi_note):
+        """将MIDI音符号转换为频率（Hz）"""
+        return 440.0 * (2.0 ** ((midi_note - 69) / 12.0))
+    
+    def play_note_direct(self, pitch, duration, velocity):
+        """
+        直接播放音符（使用波形生成，无需MIDI设备）
+        pitch: MIDI音符号（60=C4）
+        duration: 持续时间（秒）
+        velocity: 音量（0-127）
+        """
+        if not self.audio_initialized:
+            return
+        
+        try:
+            frequency = self.midi_note_to_frequency(pitch)
+            volume = velocity / 127.0 * 0.3  # 限制最大音量为0.3避免过响
+            
+            sound = self.generate_square_wave(frequency, duration, volume)
+            sound.play()
+            
+        except Exception as e:
+            print(f"播放音符失败: {e}")
+        
+    def rgb_to_hsv(self, r, g, b):
+        """将RGB转换为HSV（色相、饱和度、明度）"""
+        h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+        return h, s, v
+    
+    def rgba_to_note_hsv(self, r, g, b, a=255):
+        """
+        基于HSV色彩空间生成8-bit风格音符
+        H (Hue/色相): 决定音高 (0-1 -> 12个半音，循环色轮)
+        S (Saturation/饱和度): 决定音量/力度 (0-1 -> 高饱和度=强音量)
+        V (Value/明度): 决定时长 (0-1 -> 亮度高=长音符)
+        A (Alpha/透明度): 额外的音量调节
+        """
+        # 转换到HSV色彩空间
+        h, s, v = self.rgb_to_hsv(r, g, b)
+        
+        # 色相 (Hue) → 音高
+        # 色相是0-1的循环值，映射到五声音阶
+        scale_len = len(self.pentatonic_scale)
+        pitch_index = int(h * scale_len) % scale_len
+        base_pitch = self.pentatonic_scale[pitch_index]
+        
+        # 明度 (Value) → 八度偏移
+        # 亮的颜色高音，暗的颜色低音
+        if v > 0.7:
+            octave_shift = 12  # 高一个八度
+        elif v > 0.4:
+            octave_shift = 0   # 标准八度
+        else:
+            octave_shift = -12 # 低一个八度
+        
+        pitch = base_pitch + octave_shift
+        pitch = max(36, min(96, pitch))  # C2到C7
+        
+        # 明度 (Value) → 时长
+        # 亮色=长音符，暗色=短音符
+        if v > 0.7:
+            duration = 0.25  # 1/4拍
+        elif v > 0.4:
+            duration = 0.125  # 1/8拍
+        else:
+            duration = 0.0625  # 1/16拍（非常短）
+        
+        # 饱和度 (Saturation) + Alpha → 力度
+        # 高饱和度=鲜艳颜色=强音量
+        # 低饱和度=灰色=弱音量
+        saturation_velocity = int(50 + s * 60)  # 50-110
+        alpha_factor = a / 255.0
+        velocity = int(saturation_velocity * alpha_factor)
+        velocity = max(40, min(127, velocity))
         
         return pitch, duration, velocity
+    
+    def rgba_to_note(self, r, g, b, a=255):
+        """
+        将RGBA值转换为8-bit风格的音符参数（使用HSV）
+        """
+        return self.rgba_to_note_hsv(r, g, b, a)
+    
+    def rgb_to_note(self, r, g, b):
+        """
+        将RGB值转换为音符参数（向后兼容）
+        调用rgba_to_note，默认alpha=255
+        """
+        return self.rgba_to_note(r, g, b, 255)
     
     def generate_melody(self, rgb_data, max_notes=64):
         """
@@ -176,6 +286,43 @@ class MelodyGenerator:
                     os.remove(self.temp_midi_path)
                 except:
                     pass
+    
+    def save_recorded_melody(self, file_path):
+        """
+        保存录制的旋律为MIDI文件
+        使用recorded_notes列表中的所有音符
+        """
+        if not self.recorded_notes:
+            raise ValueError("No notes recorded yet!")
+        
+        # 创建新的MIDI文件
+        midi_file = MIDIFile(1)
+        track = 0
+        channel = 0
+        time = 0
+        
+        midi_file.addTempo(track, time, self.tempo)
+        midi_file.addProgramChange(track, channel, time, 80)  # Square wave
+        
+        current_time = 0
+        for note in self.recorded_notes:
+            pitch = note['pitch']
+            duration = note['duration']
+            velocity = note['velocity']
+            
+            midi_file.addNote(track, channel, pitch, current_time, duration, velocity)
+            current_time += duration
+        
+        # 保存文件
+        with open(file_path, "wb") as output_file:
+            midi_file.writeFile(output_file)
+        
+        print(f"✓ Saved {len(self.recorded_notes)} notes to {file_path}")
+        return file_path
+    
+    def clear_recorded_notes(self):
+        """清空录制的音符"""
+        self.recorded_notes = []
     
     def __del__(self):
         """清理资源"""

@@ -7,12 +7,94 @@ import numpy as np
 
 
 class ImageProcessor:
-    def __init__(self, sample_rate=32):
+    def __init__(self, sample_rate=100, pixel_size=70):
         """
         初始化图像处理器
         sample_rate: 采样率，从图像中提取多少个点
+        pixel_size: 像素化的像素块大小，默认8x8
         """
         self.sample_rate = sample_rate
+        self.pixel_size = pixel_size
+        self.pixelated_image = None
+    
+    def pixelate_image(self, image_path, pixel_size=None):
+        """
+        将图像像素化为8x8像素块（或自定义大小）
+        返回像素化后的PIL Image对象
+        支持RGBA（透明度）
+        """
+        if pixel_size is None:
+            pixel_size = self.pixel_size
+        
+        # 打开图像
+        img = Image.open(image_path)
+        
+        # 保留原始模式（RGB或RGBA）
+        original_mode = img.mode
+        
+        # 如果不是RGB或RGBA，转换为RGB
+        if img.mode not in ['RGB', 'RGBA']:
+            img = img.convert('RGB')
+        
+        # 获取原始尺寸
+        original_width, original_height = img.size
+        
+        # 计算缩小后的尺寸（每个像素块变成1个像素）
+        small_width = max(1, original_width // pixel_size)
+        small_height = max(1, original_height // pixel_size)
+        
+        # 先缩小图像（使用NEAREST插值以保持清晰边缘）
+        img_small = img.resize((small_width, small_height), Image.Resampling.NEAREST)
+        
+        # 再放大回接近原始尺寸（使用NEAREST插值创建像素化效果）
+        pixelated_width = small_width * pixel_size
+        pixelated_height = small_height * pixel_size
+        img_pixelated = img_small.resize((pixelated_width, pixelated_height), Image.Resampling.NEAREST)
+        
+        # 保存像素化图像
+        self.pixelated_image = img_pixelated
+        
+        return img_pixelated, (small_width, small_height)
+    
+    def extract_rgb_from_pixelated(self, image_path, pixel_size=None):
+        """
+        从像素化图像中提取RGB/RGBA数据
+        每个像素块提取一个颜色值（支持透明度）
+        """
+        if pixel_size is None:
+            pixel_size = self.pixel_size
+        
+        # 像素化图像
+        pixelated_img, (grid_width, grid_height) = self.pixelate_image(image_path, pixel_size)
+        
+        # 从缩小的网格中提取每个像素的RGB/RGBA值
+        img = Image.open(image_path)
+        
+        # 保留原始模式
+        has_alpha = img.mode == 'RGBA'
+        if img.mode not in ['RGB', 'RGBA']:
+            img = img.convert('RGB')
+            has_alpha = False
+        
+        # 缩小到网格大小
+        img_small = img.resize((grid_width, grid_height), Image.Resampling.NEAREST)
+        
+        rgb_data = []
+        
+        # 遍历每个像素块（从左到右，从上到下）
+        for y in range(grid_height):
+            for x in range(grid_width):
+                pixel = img_small.getpixel((x, y))
+                if has_alpha:
+                    # RGBA模式
+                    r, g, b, a = pixel
+                    rgb_data.append((r, g, b, a))
+                else:
+                    # RGB模式
+                    r, g, b = pixel
+                    rgb_data.append((r, g, b, 255))  # 默认alpha=255（不透明）
+        
+        return rgb_data, pixelated_img
     
     def extract_rgb_data(self, image_path):
         """

@@ -4,7 +4,7 @@ from image_processor import ImageProcessor
 from melody_generator import MelodyGenerator
 
 # Initialize modules
-image_proc = ImageProcessor(sample_rate=32)
+image_proc = ImageProcessor(sample_rate=50)
 melody_gen = MelodyGenerator()
 
 # Process an image
