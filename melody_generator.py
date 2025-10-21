@@ -295,30 +295,49 @@ class MelodyGenerator:
         if not self.recorded_notes:
             raise ValueError("No notes recorded yet!")
         
+        # 确保文件扩展名是 .mid
+        if not file_path.lower().endswith('.mid'):
+            file_path += '.mid'
+        
         # 创建新的MIDI文件
-        midi_file = MIDIFile(1)
+        midi_file = MIDIFile(1)  # 1个轨道
         track = 0
         channel = 0
         time = 0
         
+        # 设置音轨名称
+        midi_file.addTrackName(track, time, "Image2Melody")
         midi_file.addTempo(track, time, self.tempo)
-        midi_file.addProgramChange(track, channel, time, 80)  # Square wave
+        midi_file.addProgramChange(track, channel, time, 80)  # Square wave (8-bit音效)
         
         current_time = 0
+        note_count = 0
+        
         for note in self.recorded_notes:
-            pitch = note['pitch']
-            duration = note['duration']
-            velocity = note['velocity']
+            pitch = int(note['pitch'])
+            duration = float(note['duration'])
+            velocity = int(note['velocity'])
+            
+            # 确保参数在有效范围内
+            pitch = max(0, min(127, pitch))
+            velocity = max(0, min(127, velocity))
+            duration = max(0.1, duration)  # 最小持续时间
             
             midi_file.addNote(track, channel, pitch, current_time, duration, velocity)
             current_time += duration
+            note_count += 1
         
-        # 保存文件
-        with open(file_path, "wb") as output_file:
-            midi_file.writeFile(output_file)
-        
-        print(f"✓ Saved {len(self.recorded_notes)} notes to {file_path}")
-        return file_path
+        # 保存文件（二进制模式）
+        try:
+            with open(file_path, "wb") as output_file:
+                midi_file.writeFile(output_file)
+            
+            print(f"✓ Saved {note_count} notes to {file_path}")
+            print(f"✓ File size: {os.path.getsize(file_path)} bytes")
+            return file_path
+        except Exception as e:
+            print(f"✗ Error saving MIDI file: {e}")
+            raise
     
     def clear_recorded_notes(self):
         """清空录制的音符"""

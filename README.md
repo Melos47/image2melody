@@ -2,8 +2,15 @@
 
 将图片转换为8-bit风格的音乐旋律！基于HSV色彩空间生成独特的音符。
 
-## ✨ 最新更新 (v2.0)
+## ✨ 最新更新 (v3.0 - Dithering & Moshing Edition)
 
+- 🎨 **1-Bit Floyd-Steinberg Dithering**: 使用经典误差扩散算法将图片转换为黑白点阵
+- 🌈 **Mac OS Classic 主题**: 复古Mac风格界面，粉色边框和米色按钮
+- ⚡ **Data Moshing 效果**: 渐进式数据损坏动画，创造glitch art美学
+- 🎭 **Progressive Glitch Curve**: 动画从清晰到混沌再到清晰的视觉叙事
+- 💫 **三种Glitch类型**: 像素位移、色彩通道偏移、扫描线损坏
+
+### v2.0 功能
 - 🎨 **HSV色彩模型**: 基于色相、饱和度、明度生成音符
 - 💾 **保存功能**: 将生成的旋律保存为MIDI文件
 - 🎵 **实时播放**: 动画过程中实时播放音符
@@ -12,20 +19,38 @@
 
 ## 功能特点
 
-- **双框架UI设计**：
-  - 左侧框架显示图片动画过程
-  - 右侧框架显示实时信息和控制说明
+### 🎨 视觉效果 (v3.0 新功能!)
+
+- **1-Bit Floyd-Steinberg Dithering**：
+  - 经典误差扩散算法，将彩色图片转换为黑白点阵
+  - Mac OS Classic 配色：黑色 (#010101) 和 米色 (#CDBEB8)
+  - 保留图片细节的同时创造复古点阵美学
+  - 自动在动画开始前应用抖动处理
   
-- **🎬 实时演奏模式**（全新！）：
-  - 动画像素化：从(0,0)开始逐个生成像素块
+- **Progressive Data Moshing**：
+  - 渐进式glitch效果，随动画进度变化
+  - 三种损坏类型：
+    - 像素块位移 (Displacement)
+    - 色彩通道偏移 (Color Shift)
+    - 扫描线损坏 (Scanline Corruption)
+  - 强度曲线：0% → 21% → 0% (渐入渐出)
+  - 状态栏 ⚡ 图标指示glitch活跃状态
+  
+- **Mac OS Classic 界面**：
+  - 条纹标题栏（粉色 #C87488）
+  - 米色按钮和选中状态 (#CDBEB8)
+  - 粉色边框和黑色背景 (#010101)
+  - Jersey 10 像素字体
+  - 复古弹窗设计
+
+### 🎬 实时演奏模式
+
+- **动画像素化**：
+  - 从(0,0)开始逐个生成像素块
+  - 80×80像素块，50-100ms动画速度
   - 实时音符播放：每个像素块立即播放对应音符
   - 键盘控制：WASD实时调整音高
   - 互动体验：暂停、继续、重放
-  
-- **像素化处理**：
-  - 将图片转换为8x8像素块的复古风格
-  - 每个像素块代表一个音符
-  - 真实的8-bit游戏画面效果
   
 - **🎹 键盘交互**：
   - W: 升高八度 (+12半音)
@@ -34,14 +59,14 @@
   - D: 升高半音 (+1半音)
   - Space: 暂停/继续动画
   
-- **RGB到音乐映射**：
-  - **红色 (R)**：决定音高/音符频率
-  - **绿色 (G)**：决定音符时长和动画速度
-  - **蓝色 (B)**：决定音符力度/音量
+- **HSV到音乐映射**：
+  - **色相 (H)**：决定音符（五声音阶）
+  - **饱和度 (S)**：决定音符力度/音量
+  - **明度 (V)**：决定音符时长
   
 - **音乐生成**：
   - 生成8-bit风格的旋律
-  - 支持实时播放
+  - 支持实时播放（方波合成）
   - 导出MIDI文件格式
 
 ## 🚀 安装步骤
@@ -279,7 +304,21 @@ rgb_data = image_processor.extract_rgb_data_advanced(image_path, method='random'
 rgb_data = image_processor.extract_rgb_data_advanced(image_path, method='edge')
 ```
 
-## 📝 许可证
+## � 详细文档
+
+### v3.0 新文档
+- **[DITHERING_AND_MOSHING_GUIDE.md](DITHERING_AND_MOSHING_GUIDE.md)** - Floyd-Steinberg抖动和数据损坏详细技术文档
+- **[MAC_OS_CLASSIC_STYLE.md](MAC_OS_CLASSIC_STYLE.md)** - Mac OS Classic界面设计指南
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - 快速测试指南
+- **[VISUAL_FLOW_DIAGRAM.md](VISUAL_FLOW_DIAGRAM.md)** - 可视化流程图和示例
+- **[IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)** - 完整实现总结
+
+### 其他指南
+- **[HSV_MELODY_GUIDE.md](HSV_MELODY_GUIDE.md)** - HSV色彩到音乐映射详解
+- **[SOUND_TROUBLESHOOTING.md](SOUND_TROUBLESHOOTING.md)** - 音频问题排查
+- **[QUICKSTART.md](QUICKSTART.md)** - 快速开始指南
+
+## �📝 许可证
 
 此项目仅供学习和研究使用。
 
@@ -293,6 +332,7 @@ Melos47
 - Pillow - Python图像处理库
 - MIDIUtil - MIDI文件生成库
 - pygame - 多媒体库
+- Jersey 10 字体 - 复古像素字体
 
 ## 📮 联系方式
 
@@ -300,4 +340,4 @@ Melos47
 
 ---
 
-**享受将视觉艺术转换为听觉艺术的乐趣！** 🎨 → 🎵
+**享受将视觉艺术转换为听觉艺术的乐趣！** 🎨 → 🎵 → ⚡
