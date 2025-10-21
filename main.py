@@ -566,7 +566,7 @@ class Image2MelodyApp:
         # 标题文字（居中）
         self.title_text_id = title_canvas.create_text(
             500, 16,  # 固定位置
-            text="Scrapbook - Image2Melody",
+            text="NetDream###8",
             font=self.pixel_font_medium,
             fill=self.bg_black,
             anchor=tk.CENTER
