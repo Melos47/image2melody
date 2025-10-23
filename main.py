@@ -1071,8 +1071,9 @@ class Image2MelodyApp:
                 # 保存当前帧
                 self.camera_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 
-                # 转换为PIL Image
+                # 转换为PIL Image并水平翻转（镜像效果）
                 img = Image.fromarray(self.camera_frame)
+                img = img.transpose(Image.FLIP_LEFT_RIGHT)
                 
                 # 显示在主 canvas 上
                 self.display_image(img)
