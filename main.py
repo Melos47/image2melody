@@ -901,30 +901,33 @@ class Image2MelodyApp:
         import cv2
         import time
         
-        ret, frame = self.camera_cap.read()
-        if ret:
-            # 保存当前帧
-            self.camera_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # 转换为PIL Image
-            img = Image.fromarray(self.camera_frame)
-            
-            # 显示在主 canvas 上
-            self.display_image(img)
-            
-            # 如果正在录制，保存帧
-            if self.camera_recording and not self.camera_paused:
-                self.camera_frames.append(img.copy())
-            
-            # 🎵 根据摄像头画面中心区域生成实时声音（如果未暂停）
-            if not self.camera_paused:
-                self.play_camera_audio(img)
-            
-            # 更新状态显示
-            status = "PAUSED" if self.camera_paused else "RECORDING" if self.camera_recording else "LIVE"
-            self.status_canvas.itemconfig(self.status_text_id,
-                text=f"[ {status} ] Camera | Pitch: {self.camera_octave_shift:+d} | Speed: {self.camera_speed:.1f}x | Frames: {len(self.camera_frames)}"
-            )
+        try:
+            ret, frame = self.camera_cap.read()
+            if ret:
+                # 保存当前帧
+                self.camera_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                # 转换为PIL Image
+                img = Image.fromarray(self.camera_frame)
+                
+                # 显示在主 canvas 上
+                self.display_image(img)
+                
+                # 如果正在录制，保存帧
+                if self.camera_recording and not self.camera_paused:
+                    self.camera_frames.append(img.copy())
+                
+                # 🎵 根据摄像头画面中心区域生成实时声音（如果未暂停）
+                if not self.camera_paused:
+                    self.play_camera_audio(img)
+                
+                # 更新状态显示
+                self.update_camera_status()
+        except Exception as e:
+            # 捕获任何错误（例如窗口关闭）
+            print(f"⚠️  Camera preview error: {e}")
+            self.camera_active = False
+            return
         
         # 继续更新（根据速度调整）
         if self.camera_active:
@@ -959,7 +962,7 @@ class Image2MelodyApp:
         buttons = [
             ("PAUSE", "pause_btn", self.toggle_camera_pause),
             ("SAVE", "save_btn", self.save_camera_recording),
-            ("RELOAD", "reload_btn", self.reload_camera),
+            ("RESET", "reset_btn", self.reset_camera),
             ("EXIT", "exit_btn", self.cancel_camera)
         ]
         
@@ -1005,26 +1008,101 @@ class Image2MelodyApp:
     
     def bind_camera_keyboard_controls(self):
         """绑定摄像头模式的键盘控制"""
-        # W/S - 音高控制（上升/下降八度）
-        self.root.bind('w', lambda e: self.adjust_camera_octave(+1))
-        self.root.bind('W', lambda e: self.adjust_camera_octave(+1))
-        self.root.bind('s', lambda e: self.adjust_camera_octave(-1))
-        self.root.bind('S', lambda e: self.adjust_camera_octave(-1))
+        print("⌨️  Binding keyboard controls...")
         
-        # A/D - 八度控制（另一种方式）
-        self.root.bind('a', lambda e: self.adjust_camera_octave(-1))
-        self.root.bind('A', lambda e: self.adjust_camera_octave(-1))
-        self.root.bind('d', lambda e: self.adjust_camera_octave(+1))
-        self.root.bind('D', lambda e: self.adjust_camera_octave(+1))
+        # 确保窗口和canvas都获得焦点
+        self.root.focus_force()
+        self.image_canvas.focus_set()
         
-        # 方向键 - 速度控制
-        self.root.bind('<Up>', lambda e: self.adjust_camera_speed(+0.2))
-        self.root.bind('<Down>', lambda e: self.adjust_camera_speed(-0.2))
-        self.root.bind('<Left>', lambda e: self.adjust_camera_speed(-0.2))
-        self.root.bind('<Right>', lambda e: self.adjust_camera_speed(+0.2))
+        # 绑定到 root 和 canvas（确保无论焦点在哪都能响应）
+        for widget in [self.root, self.image_canvas]:
+            # W/S - 音高控制（上升/下降八度）
+            widget.bind('w', self._camera_key_w)
+            widget.bind('W', self._camera_key_w)
+            widget.bind('s', self._camera_key_s)
+            widget.bind('S', self._camera_key_s)
+            
+            # A/D - 八度控制（另一种方式）
+            widget.bind('a', self._camera_key_a)
+            widget.bind('A', self._camera_key_a)
+            widget.bind('d', self._camera_key_d)
+            widget.bind('D', self._camera_key_d)
+            
+            # 方向键 - 速度控制（修复：Up=加速，Down=减速）
+            widget.bind('<Up>', self._camera_key_up)
+            widget.bind('<Down>', self._camera_key_down)
+            widget.bind('<Left>', self._camera_key_left)
+            widget.bind('<Right>', self._camera_key_right)
+            
+            # 空格 - 暂停/继续
+            widget.bind('<space>', self._camera_key_space)
+            
+            # R - 重置
+            widget.bind('r', self._camera_key_r)
+            widget.bind('R', self._camera_key_r)
         
-        # 空格 - 暂停/继续
-        self.root.bind('<space>', lambda e: self.toggle_camera_pause())
+        print("✅ Keyboard controls active:")
+        print("   W/S/A/D = pitch | ↑/↓/←/→ = speed | SPACE = pause | R = reset")
+    
+    def _camera_key_w(self, event):
+        """W键：升高八度"""
+        print(f"🔵 Key pressed: W")
+        self.adjust_camera_octave(+1)
+        return "break"
+    
+    def _camera_key_s(self, event):
+        """S键：降低八度"""
+        print(f"🔵 Key pressed: S")
+        self.adjust_camera_octave(-1)
+        return "break"
+    
+    def _camera_key_a(self, event):
+        """A键：降低八度"""
+        print(f"🔵 Key pressed: A")
+        self.adjust_camera_octave(-1)
+        return "break"
+    
+    def _camera_key_d(self, event):
+        """D键：升高八度"""
+        print(f"🔵 Key pressed: D")
+        self.adjust_camera_octave(+1)
+        return "break"
+    
+    def _camera_key_up(self, event):
+        """Up键：加速"""
+        print(f"🔵 Key pressed: ↑")
+        self.adjust_camera_speed(+0.2)
+        return "break"
+    
+    def _camera_key_down(self, event):
+        """Down键：减速"""
+        print(f"🔵 Key pressed: ↓")
+        self.adjust_camera_speed(-0.2)
+        return "break"
+    
+    def _camera_key_left(self, event):
+        """Left键：减速"""
+        print(f"🔵 Key pressed: ←")
+        self.adjust_camera_speed(-0.2)
+        return "break"
+    
+    def _camera_key_right(self, event):
+        """Right键：加速"""
+        print(f"🔵 Key pressed: →")
+        self.adjust_camera_speed(+0.2)
+        return "break"
+    
+    def _camera_key_space(self, event):
+        """Space键：暂停/继续"""
+        print(f"🔵 Key pressed: SPACE")
+        self.toggle_camera_pause()
+        return "break"
+    
+    def _camera_key_r(self, event):
+        """R键：重置设置"""
+        print(f"🔵 Key pressed: R")
+        self.reset_camera()
+        return "break"
     
     def adjust_camera_octave(self, delta):
         """调整摄像头音高（八度）"""
@@ -1032,6 +1110,9 @@ class Image2MelodyApp:
             self.camera_octave_shift += delta * 12  # 每次移动一个八度（12个半音）
             self.camera_octave_shift = max(-24, min(24, self.camera_octave_shift))  # 限制在±2个八度
             print(f"🎵 Camera octave: {self.camera_octave_shift:+d} semitones")
+            
+            # 立即更新状态显示
+            self.update_camera_status()
     
     def adjust_camera_speed(self, delta):
         """调整摄像头播放速度"""
@@ -1039,6 +1120,23 @@ class Image2MelodyApp:
             self.camera_speed += delta
             self.camera_speed = max(0.2, min(3.0, self.camera_speed))  # 限制在 0.2x - 3.0x
             print(f"⚡ Camera speed: {self.camera_speed:.1f}x")
+            
+            # 立即更新状态显示
+            self.update_camera_status()
+    
+    def update_camera_status(self):
+        """更新摄像头状态显示"""
+        if hasattr(self, 'camera_active') and self.camera_active:
+            try:
+                status = "PAUSED" if self.camera_paused else "RECORDING" if self.camera_recording else "LIVE"
+                new_text = f"[ {status} ] Camera | Pitch: {self.camera_octave_shift:+d} | Speed: {self.camera_speed:.1f}x | Frames: {len(self.camera_frames)}"
+                
+                self.status_canvas.itemconfig(self.status_text_id, text=new_text)
+                # 强制刷新界面
+                self.root.update_idletasks()
+            except Exception as e:
+                # 忽略窗口已销毁的错误
+                pass
     
     def toggle_camera_pause(self):
         """暂停/继续摄像头"""
@@ -1046,6 +1144,9 @@ class Image2MelodyApp:
             self.camera_paused = not self.camera_paused
             status = "PAUSED" if self.camera_paused else "RESUMED"
             print(f"⏸️  Camera {status}")
+            
+            # 更新状态显示
+            self.update_camera_status()
             
             # 停止声音
             if self.camera_paused:
@@ -1057,68 +1158,143 @@ class Image2MelodyApp:
     def save_camera_recording(self):
         """保存摄像头录制的视频和音频"""
         if not hasattr(self, 'camera_frames') or len(self.camera_frames) == 0:
-            messagebox.showinfo("Info", "No frames recorded yet!")
+            messagebox.showinfo("Info", "No frames recorded yet!\n\nTip: Camera is recording automatically.")
             return
         
         print(f"💾 Saving camera recording: {len(self.camera_frames)} frames, {len(self.camera_audio_notes)} notes")
         
         # 使用文件对话框
         from tkinter import filedialog
+        import os
         
-        # 保存视频
-        video_path = filedialog.asksaveasfilename(
-            defaultextension=".mp4",
-            filetypes=[("MP4 Video", "*.mp4"), ("All Files", "*.*")],
-            title="Save Camera Video"
+        # 询问保存位置（基础文件名）
+        base_path = filedialog.asksaveasfilename(
+            defaultextension="",
+            filetypes=[("All Files", "*.*")],
+            title="Choose base filename (will add .mp4 and .wav)"
         )
         
-        if video_path:
+        if not base_path:
+            return
+        
+        # 移除可能的扩展名
+        base_path = os.path.splitext(base_path)[0]
+        
+        video_path = base_path + ".mp4"
+        audio_path = base_path + ".wav"
+        
+        saved_files = []
+        
+        # 1. 保存视频
+        try:
+            import imageio
+            import numpy as np
+            
+            print(f"📹 Saving video with {len(self.camera_frames)} frames...")
+            
+            # 计算 FPS（基于实际速度）
+            fps = int(30 * self.camera_speed)
+            fps = max(10, min(60, fps))  # 限制在 10-60 FPS
+            
+            # 转换帧为 numpy 数组
+            frames_np = []
+            for i, frame in enumerate(self.camera_frames):
+                frames_np.append(np.array(frame))
+                if (i + 1) % 100 == 0:
+                    print(f"  Converting frame {i + 1}/{len(self.camera_frames)}...")
+            
+            # 保存视频
+            print(f"  Encoding to MP4 (FPS={fps})...")
+            imageio.mimsave(video_path, frames_np, fps=fps, codec='libx264', quality=8)
+            print(f"✅ Video saved: {video_path}")
+            saved_files.append(f"Video: {os.path.basename(video_path)}")
+            
+        except Exception as e:
+            import traceback
+            print(f"❌ Error saving video: {e}")
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to save video:\n{str(e)}")
+        
+        # 2. 保存音频（如果有音符记录）
+        if len(self.camera_audio_notes) > 0:
             try:
-                import imageio
-                import numpy as np
+                import wave
+                import struct
                 
-                # 计算 FPS（假设 30 FPS）
-                fps = 30
+                print(f"🎵 Generating audio from {len(self.camera_audio_notes)} notes...")
                 
-                # 转换帧为 numpy 数组
-                frames_np = []
-                for frame in self.camera_frames:
-                    frames_np.append(np.array(frame))
+                sample_rate = 44100
+                duration_per_note = 0.1  # 每个音符 100ms
                 
-                # 保存视频
-                imageio.mimsave(video_path, frames_np, fps=fps, codec='libx264', quality=8)
-                print(f"✅ Video saved: {video_path}")
-                messagebox.showinfo("Success", f"Video saved:\n{video_path}")
+                # 生成音频波形
+                audio_samples = []
+                
+                for i, note_data in enumerate(self.camera_audio_notes):
+                    pitch = note_data['pitch']
+                    velocity = note_data['velocity']
+                    
+                    # 转换为频率
+                    frequency = 440.0 * (2 ** ((pitch - 69) / 12.0))
+                    
+                    # 生成方波
+                    num_samples = int(sample_rate * duration_per_note)
+                    for j in range(num_samples):
+                        t = j / sample_rate
+                        # 方波（8-bit风格）
+                        wave_value = 1.0 if (t * frequency) % 1.0 < 0.5 else -1.0
+                        # 应用音量
+                        amplitude = (velocity / 127.0) * 0.3  # 降低音量避免削波
+                        sample_value = int(wave_value * amplitude * 32767)
+                        audio_samples.append(sample_value)
+                    
+                    if (i + 1) % 100 == 0:
+                        print(f"  Processing note {i + 1}/{len(self.camera_audio_notes)}...")
+                
+                # 保存为 WAV
+                print(f"  Writing WAV file...")
+                with wave.open(audio_path, 'w') as wav_file:
+                    wav_file.setnchannels(1)  # Mono
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(sample_rate)
+                    
+                    # 写入数据
+                    for sample in audio_samples:
+                        wav_file.writeframes(struct.pack('<h', sample))
+                
+                print(f"✅ Audio saved: {audio_path}")
+                saved_files.append(f"Audio: {os.path.basename(audio_path)}")
                 
             except Exception as e:
-                print(f"❌ Error saving video: {e}")
-                messagebox.showerror("Error", f"Failed to save video:\n{str(e)}")
+                import traceback
+                print(f"❌ Error saving audio: {e}")
+                traceback.print_exc()
+        else:
+            print("⚠️  No audio notes recorded")
         
-        # 保存音频（如果有音符记录）
-        if len(self.camera_audio_notes) > 0:
-            audio_path = filedialog.asksaveasfilename(
-                defaultextension=".wav",
-                filetypes=[("WAV Audio", "*.wav"), ("All Files", "*.*")],
-                title="Save Camera Audio"
-            )
-            
-            if audio_path:
-                try:
-                    # TODO: 实现音频保存逻辑
-                    print(f"✅ Audio saved: {audio_path}")
-                except Exception as e:
-                    print(f"❌ Error saving audio: {e}")
+        # 显示成功消息
+        if saved_files:
+            message = "Successfully saved:\n\n" + "\n".join(saved_files)
+            messagebox.showinfo("Success", message)
+        else:
+            messagebox.showwarning("Warning", "No files were saved!")
     
-    def reload_camera(self):
-        """重新加载摄像头（清空录制）"""
+    def reset_camera(self):
+        """重置摄像头设置并清空录制"""
         if hasattr(self, 'camera_active') and self.camera_active:
+            # 清空录制数据
             self.camera_frames = []
             self.camera_audio_notes = []
+            
+            # 重置所有设置
             self.camera_octave_shift = 0
             self.camera_speed = 1.0
             self.camera_paused = False
-            print("🔄 Camera reloaded - recording cleared")
-            messagebox.showinfo("Reloaded", "Recording cleared!\nCamera reset to default settings.")
+            
+            # 立即更新状态显示
+            self.update_camera_status()
+            
+            print("🔄 Camera reset: Pitch=0, Speed=1.0x, Frames cleared")
+            messagebox.showinfo("Reset", "Camera settings reset!\n\n• Pitch: 0\n• Speed: 1.0x\n• Frames: cleared")
     
     def play_camera_audio(self, img):
         """根据摄像头画面颜色实时生成声音（使用与图片处理相同的HSV逻辑）"""
@@ -1170,6 +1346,10 @@ class Image2MelodyApp:
                     'velocity': velocity,
                     'rgb': (int(avg_r), int(avg_g), int(avg_b))
                 })
+                
+                # 每100个音符输出一次进度
+                if len(self.camera_audio_notes) % 100 == 0:
+                    print(f"🎵 Recorded {len(self.camera_audio_notes)} notes...")
             
             # 🎵 播放短促的音符（实时反馈）
             # 只在音量足够大时播放（避免静音区域产生噪音）
@@ -1234,21 +1414,27 @@ class Image2MelodyApp:
     
     def unbind_camera_keyboard_controls(self):
         """解绑摄像头模式的键盘控制"""
+        print("⌨️  Unbinding keyboard controls...")
         try:
-            self.root.unbind('w')
-            self.root.unbind('W')
-            self.root.unbind('s')
-            self.root.unbind('S')
-            self.root.unbind('a')
-            self.root.unbind('A')
-            self.root.unbind('d')
-            self.root.unbind('D')
-            self.root.unbind('<Up>')
-            self.root.unbind('<Down>')
-            self.root.unbind('<Left>')
-            self.root.unbind('<Right>')
-            self.root.unbind('<space>')
-        except:
+            # 从 root 和 canvas 都解绑
+            for widget in [self.root, self.image_canvas]:
+                widget.unbind('w')
+                widget.unbind('W')
+                widget.unbind('s')
+                widget.unbind('S')
+                widget.unbind('a')
+                widget.unbind('A')
+                widget.unbind('d')
+                widget.unbind('D')
+                widget.unbind('<Up>')
+                widget.unbind('<Down>')
+                widget.unbind('<Left>')
+                widget.unbind('<Right>')
+                widget.unbind('<space>')
+                widget.unbind('r')
+                widget.unbind('R')
+        except Exception as e:
+            print(f"⚠️  Error unbinding: {e}")
             pass
     
     def show_start_animation_popup(self):
