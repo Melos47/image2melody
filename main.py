@@ -5,7 +5,7 @@ Image to 8-bit Melody Converter
 Data Moshing Animation Effect
 """
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 from tkinter import font as tkfont
 from PIL import Image, ImageTk, ImageDraw, ImageFilter, ImageChops
 import threading
@@ -787,6 +787,111 @@ class Image2MelodyApp:
         # Pause
         self.root.bind('<space>', lambda e: self.toggle_pause())
     
+    def show_mac_dialog(self, title, message, dialog_type="info", buttons=None):
+        """
+        显示 Mac OS Classic 风格对话框
+        dialog_type: "info", "error", "warning", "question"
+        buttons: None (默认OK), ["YES", "NO"], ["YES", "NO", "CANCEL"] 等
+        返回: 按钮索引或 None (关闭)
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        
+        # 根据内容调整窗口大小
+        if buttons and len(buttons) > 1:
+            width = max(480, 160 * len(buttons))
+        else:
+            width = 400
+        height = 220 if not buttons or len(buttons) == 1 else 260
+        
+        dialog.geometry(f"{width}x{height}")
+        dialog.configure(bg=self.bg_black)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        result = [None]
+        
+        # Mac风格边框
+        border_frame = tk.Frame(dialog, bg=self.primary_pink, bd=0)
+        border_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=3)
+        
+        content_frame = tk.Frame(border_frame, bg=self.bg_black, bd=0)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        
+        # 图标emoji
+        icon_map = {
+            "info": "ℹ️",
+            "error": "❌",
+            "warning": "⚠️",
+            "question": "❓",
+            "success": "✅"
+        }
+        icon = icon_map.get(dialog_type, "ℹ️")
+        
+        # 标题
+        title_label = tk.Label(
+            content_frame,
+            text=f"{icon} {title}",
+            font=self.pixel_font_large,
+            bg=self.bg_black,
+            fg=self.primary_pink
+        )
+        title_label.pack(pady=(20, 15))
+        
+        # 信息文本
+        info_label = tk.Label(
+            content_frame,
+            text=message,
+            font=self.pixel_font_medium,
+            bg=self.bg_black,
+            fg=self.hover_beige,
+            justify=tk.CENTER
+        )
+        info_label.pack(pady=10)
+        
+        # 按钮
+        if not buttons:
+            buttons = ["OK"]
+        
+        button_frame = tk.Frame(content_frame, bg=self.bg_black)
+        button_frame.pack(pady=20)
+        
+        def make_callback(index):
+            def callback():
+                result[0] = index
+                dialog.destroy()
+            return callback
+        
+        for i, btn_text in enumerate(buttons):
+            btn = tk.Button(
+                button_frame,
+                text=btn_text,
+                font=self.pixel_font_medium,
+                bg=self.hover_beige,
+                fg=self.bg_black,
+                activebackground=self.primary_pink,
+                activeforeground=self.bg_black,
+                bd=3,
+                relief=tk.RAISED,
+                width=12,
+                height=2,
+                cursor="hand2",
+                command=make_callback(i)
+            )
+            btn.pack(side=tk.LEFT, padx=8)
+        
+        # 键盘快捷键
+        if len(buttons) == 1:
+            dialog.bind('<Return>', lambda e: make_callback(0)())
+            dialog.bind('<Escape>', lambda e: make_callback(0)())
+        else:
+            dialog.bind('<Return>', lambda e: make_callback(0)())  # 默认第一个按钮
+            dialog.bind('<Escape>', lambda e: dialog.destroy())     # ESC关闭
+        
+        dialog.wait_window()
+        return result[0]
+    
     def init_audio(self):
         """初始化音频系统（使用pygame.mixer，无需MIDI设备）"""
         if self.melody_generator.audio_initialized:
@@ -794,8 +899,9 @@ class Image2MelodyApp:
             return True
         else:
             print("✗ Audio initialization failed")
-            messagebox.showwarning("Audio Warning", 
-                "Could not initialize audio system.\nYou may not hear sounds during playback.")
+            self.show_mac_dialog("Audio Warning", 
+                "Could not initialize audio system.\nYou may not hear sounds during playback.",
+                dialog_type="warning")
             return False
     
     def adjust_octave(self, shift):
@@ -856,21 +962,21 @@ class Image2MelodyApp:
                 self.show_start_animation_popup()
                 
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to load image: {str(e)}")
+                self.show_mac_dialog("Error", f"Failed to load image: {str(e)}", dialog_type="error")
     
     def capture_from_camera(self):
         """Capture image from camera and show in main canvas"""
         try:
             import cv2
         except ImportError:
-            messagebox.showerror("Error", "opencv-python library is required for camera capture.\n\nInstall with:\npip install opencv-python")
+            self.show_mac_dialog("Error", "opencv-python library is required for camera capture.\n\nInstall with:\npip install opencv-python", dialog_type="error")
             return
         
         # 打开摄像头
         self.camera_cap = cv2.VideoCapture(0)
         
         if not self.camera_cap.isOpened():
-            messagebox.showerror("Error", "Could not open camera!")
+            self.show_mac_dialog("Error", "Could not open camera!", dialog_type="error")
             return
         
         self.camera_active = True
@@ -884,6 +990,9 @@ class Image2MelodyApp:
         self.camera_frames = []
         self.camera_audio_notes = []
         
+        # 创建右上角状态显示
+        self.create_camera_status_overlay()
+        
         # 在主 canvas 上显示摄像头预览
         self.update_camera_preview()
         
@@ -892,6 +1001,61 @@ class Image2MelodyApp:
         
         # 绑定键盘控制
         self.bind_camera_keyboard_controls()
+    
+    def create_camera_status_overlay(self):
+        """在右上角创建摄像头状态显示"""
+        # 删除旧的状态显示（如果存在）
+        if hasattr(self, 'camera_status_bg'):
+            self.image_canvas.delete(self.camera_status_bg)
+            self.image_canvas.delete(self.camera_status_text)
+        
+        # 创建背景矩形（粉色边框 + 黑色背景）
+        padding = 15
+        text_x = self.image_canvas.winfo_width() - padding
+        text_y = padding + 10
+        
+        # 临时创建文本来测量尺寸
+        temp_text = self.image_canvas.create_text(
+            text_x, text_y,
+            text="[ RECORDING ] Pitch: +24 | Speed: 3.0x",
+            font=self.pixel_font_small,
+            fill=self.hover_beige,
+            anchor=tk.NE
+        )
+        bbox = self.image_canvas.bbox(temp_text)
+        self.image_canvas.delete(temp_text)
+        
+        if bbox:
+            # 添加内边距
+            pad = 8
+            bg_x1, bg_y1 = bbox[0] - pad, bbox[1] - pad
+            bg_x2, bg_y2 = bbox[2] + pad, bbox[3] + pad
+            
+            # 创建黑色背景
+            self.camera_status_bg = self.image_canvas.create_rectangle(
+                bg_x1, bg_y1, bg_x2, bg_y2,
+                fill=self.bg_black,
+                outline=self.primary_pink,
+                width=2
+            )
+        else:
+            # 如果无法获取 bbox，使用默认尺寸
+            self.camera_status_bg = self.image_canvas.create_rectangle(
+                text_x - 280, text_y - 20,
+                text_x + 10, text_y + 20,
+                fill=self.bg_black,
+                outline=self.primary_pink,
+                width=2
+            )
+        
+        # 创建状态文本
+        self.camera_status_text = self.image_canvas.create_text(
+            text_x, text_y,
+            text="[ LIVE ] Pitch: 0 | Speed: 1.0x",
+            font=self.pixel_font_small,
+            fill=self.hover_beige,
+            anchor=tk.NE
+        )
     
     def update_camera_preview(self):
         """更新主 canvas 上的摄像头预览，并根据颜色生成实时声音"""
@@ -923,6 +1087,11 @@ class Image2MelodyApp:
                 
                 # 更新状态显示
                 self.update_camera_status()
+                
+                # 确保右上角状态显示在最上层
+                if hasattr(self, 'camera_status_bg'):
+                    self.image_canvas.tag_raise(self.camera_status_bg)
+                    self.image_canvas.tag_raise(self.camera_status_text)
         except Exception as e:
             # 捕获任何错误（例如窗口关闭）
             print(f"⚠️  Camera preview error: {e}")
@@ -946,16 +1115,16 @@ class Image2MelodyApp:
         if canvas_height <= 1:
             canvas_height = 500
         
-        # 按钮位置（底部中央，4个按钮横排）
+        # 按钮位置（底部中央，5个按钮横排）
         center_x = canvas_width // 2
         bottom_y = canvas_height - 60
         
-        button_width = 130
+        button_width = 110  # 缩小按钮宽度以容纳5个按钮
         button_height = 50
-        button_spacing = 15
+        button_spacing = 12
         
-        # 计算4个按钮的起始位置
-        total_width = button_width * 4 + button_spacing * 3
+        # 计算5个按钮的起始位置
+        total_width = button_width * 5 + button_spacing * 4
         start_x = center_x - total_width // 2
         
         # 按钮配置 [文本, 标签, 回调函数]
@@ -963,6 +1132,7 @@ class Image2MelodyApp:
             ("PAUSE", "pause_btn", self.toggle_camera_pause),
             ("SAVE", "save_btn", self.save_camera_recording),
             ("RESET", "reset_btn", self.reset_camera),
+            ("BACK", "back_btn", self.back_to_menu),
             ("EXIT", "exit_btn", self.cancel_camera)
         ]
         
@@ -1040,9 +1210,12 @@ class Image2MelodyApp:
             # R - 重置
             widget.bind('r', self._camera_key_r)
             widget.bind('R', self._camera_key_r)
+            
+            # ESC - 返回菜单
+            widget.bind('<Escape>', self._camera_key_escape)
         
         print("✅ Keyboard controls active:")
-        print("   W/S/A/D = pitch | ↑/↓/←/→ = speed | SPACE = pause | R = reset")
+        print("   W/S/A/D = pitch | ↑/↓/←/→ = speed | SPACE = pause | R = reset | ESC = back")
     
     def _camera_key_w(self, event):
         """W键：升高八度"""
@@ -1104,6 +1277,12 @@ class Image2MelodyApp:
         self.reset_camera()
         return "break"
     
+    def _camera_key_escape(self, event):
+        """ESC键：返回主菜单"""
+        print(f"🔵 Key pressed: ESC")
+        self.back_to_menu()
+        return "break"
+    
     def adjust_camera_octave(self, delta):
         """调整摄像头音高（八度）"""
         if hasattr(self, 'camera_active') and self.camera_active:
@@ -1125,15 +1304,22 @@ class Image2MelodyApp:
             self.update_camera_status()
     
     def update_camera_status(self):
-        """更新摄像头状态显示"""
+        """更新摄像头状态显示（右上角）"""
         if hasattr(self, 'camera_active') and self.camera_active:
             try:
                 status = "PAUSED" if self.camera_paused else "RECORDING" if self.camera_recording else "LIVE"
-                new_text = f"[ {status} ] Camera | Pitch: {self.camera_octave_shift:+d} | Speed: {self.camera_speed:.1f}x | Frames: {len(self.camera_frames)}"
+                new_text = f"[ {status} ] Pitch: {self.camera_octave_shift:+d} | Speed: {self.camera_speed:.1f}x"
                 
-                self.status_canvas.itemconfig(self.status_text_id, text=new_text)
-                # 强制刷新界面
-                self.root.update_idletasks()
+                # 更新右上角的文本
+                if hasattr(self, 'camera_status_text'):
+                    self.image_canvas.itemconfig(self.camera_status_text, text=new_text)
+                    # 强制立即刷新（使用 update() 而不是 update_idletasks()）
+                    self.image_canvas.update()
+                
+                # 同时更新底部状态栏显示帧数
+                status_bar_text = f"[ {status} ] Camera | Frames: {len(self.camera_frames)}"
+                self.status_canvas.itemconfig(self.status_text_id, text=status_bar_text)
+                self.status_canvas.update()
             except Exception as e:
                 # 忽略窗口已销毁的错误
                 pass
@@ -1158,7 +1344,7 @@ class Image2MelodyApp:
     def save_camera_recording(self):
         """保存摄像头录制的视频和音频"""
         if not hasattr(self, 'camera_frames') or len(self.camera_frames) == 0:
-            messagebox.showinfo("Info", "No frames recorded yet!\n\nTip: Camera is recording automatically.")
+            self.show_mac_dialog("Info", "No frames recorded yet!\n\nTip: Camera is recording automatically.", dialog_type="info")
             return
         
         print(f"💾 Saving camera recording: {len(self.camera_frames)} frames, {len(self.camera_audio_notes)} notes")
@@ -1213,7 +1399,7 @@ class Image2MelodyApp:
             import traceback
             print(f"❌ Error saving video: {e}")
             traceback.print_exc()
-            messagebox.showerror("Error", f"Failed to save video:\n{str(e)}")
+            self.show_mac_dialog("Error", f"Failed to save video:\n{str(e)}", dialog_type="error")
         
         # 2. 保存音频（如果有音符记录）
         if len(self.camera_audio_notes) > 0:
@@ -1274,9 +1460,9 @@ class Image2MelodyApp:
         # 显示成功消息
         if saved_files:
             message = "Successfully saved:\n\n" + "\n".join(saved_files)
-            messagebox.showinfo("Success", message)
+            self.show_mac_dialog("Success", message, dialog_type="success")
         else:
-            messagebox.showwarning("Warning", "No files were saved!")
+            self.show_mac_dialog("Warning", "No files were saved!", dialog_type="warning")
     
     def reset_camera(self):
         """重置摄像头设置并清空录制"""
@@ -1294,7 +1480,71 @@ class Image2MelodyApp:
             self.update_camera_status()
             
             print("🔄 Camera reset: Pitch=0, Speed=1.0x, Frames cleared")
-            messagebox.showinfo("Reset", "Camera settings reset!\n\n• Pitch: 0\n• Speed: 1.0x\n• Frames: cleared")
+            
+            # 使用自定义对话框
+            self.show_reset_confirmation_dialog()
+    
+    def show_reset_confirmation_dialog(self):
+        """显示重置确认对话框（黑粉黄风格）"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Reset Complete")
+        dialog.geometry("400x220")
+        dialog.configure(bg=self.bg_black)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Mac风格边框
+        border_frame = tk.Frame(dialog, bg=self.primary_pink, bd=0)
+        border_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=3)
+        
+        content_frame = tk.Frame(border_frame, bg=self.bg_black, bd=0)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        
+        # 标题
+        title_label = tk.Label(
+            content_frame,
+            text="🔄 Camera Reset!",
+            font=self.pixel_font_large,
+            bg=self.bg_black,
+            fg=self.primary_pink
+        )
+        title_label.pack(pady=(20, 15))
+        
+        # 信息文本
+        info_text = "Settings reset:\n\n• Pitch: 0\n• Speed: 1.0x\n• Frames: cleared"
+        
+        info_label = tk.Label(
+            content_frame,
+            text=info_text,
+            font=self.pixel_font_medium,
+            bg=self.bg_black,
+            fg=self.hover_beige,
+            justify=tk.CENTER
+        )
+        info_label.pack(pady=10)
+        
+        # OK 按钮
+        ok_btn = tk.Button(
+            content_frame,
+            text="OK",
+            font=self.pixel_font_medium,
+            bg=self.hover_beige,
+            fg=self.bg_black,
+            activebackground=self.primary_pink,
+            activeforeground=self.bg_black,
+            bd=3,
+            relief=tk.RAISED,
+            width=14,
+            height=2,
+            cursor="hand2",
+            command=dialog.destroy
+        )
+        ok_btn.pack(pady=15)
+        
+        # 键盘快捷键
+        dialog.bind('<Return>', lambda e: dialog.destroy())
+        dialog.bind('<Escape>', lambda e: dialog.destroy())
     
     def play_camera_audio(self, img):
         """根据摄像头画面颜色实时生成声音（使用与图片处理相同的HSV逻辑）"""
@@ -1375,6 +1625,11 @@ class Image2MelodyApp:
             # 移除摄像头控制按钮
             self.image_canvas.delete("camera_control")
             
+            # 移除右上角状态显示
+            if hasattr(self, 'camera_status_bg'):
+                self.image_canvas.delete(self.camera_status_bg)
+                self.image_canvas.delete(self.camera_status_text)
+            
             # 保存捕获的图片
             self.current_image = Image.fromarray(self.camera_frame)
             self.current_image_path = "camera_capture"
@@ -1398,6 +1653,11 @@ class Image2MelodyApp:
         # 移除摄像头控制按钮
         self.image_canvas.delete("camera_control")
         
+        # 移除右上角状态显示
+        if hasattr(self, 'camera_status_bg'):
+            self.image_canvas.delete(self.camera_status_bg)
+            self.image_canvas.delete(self.camera_status_text)
+        
         # 解绑键盘控制
         self.unbind_camera_keyboard_controls()
         
@@ -1411,6 +1671,175 @@ class Image2MelodyApp:
         self.draw_load_button()
         self.status_canvas.itemconfig(self.status_text_id,
             text="[ READY ] Load image to start")
+    
+    def back_to_menu(self):
+        """返回到主菜单（保留摄像头运行）"""
+        if hasattr(self, 'camera_active') and self.camera_active:
+            # 暂停摄像头（但不关闭）
+            self.camera_paused = True
+            
+            # 询问是否要保存
+            if len(self.camera_frames) > 0:
+                # 使用自定义对话框
+                response = self.show_save_confirmation_dialog()
+                
+                if response is None:  # Cancel
+                    self.camera_paused = False
+                    return
+                elif response:  # Yes - Save
+                    self.save_camera_recording()
+            
+            # 关闭摄像头
+            self.camera_active = False
+            if hasattr(self, 'camera_cap') and self.camera_cap.isOpened():
+                self.camera_cap.release()
+            
+            # 移除摄像头控制按钮
+            self.image_canvas.delete("camera_control")
+            
+            # 移除右上角状态显示
+            if hasattr(self, 'camera_status_bg'):
+                self.image_canvas.delete(self.camera_status_bg)
+                self.image_canvas.delete(self.camera_status_text)
+            
+            # 解绑键盘控制
+            self.unbind_camera_keyboard_controls()
+            
+            # 停止声音
+            try:
+                pygame.mixer.stop()
+            except:
+                pass
+            
+            # 返回加载界面
+            self.draw_load_button()
+            self.status_canvas.itemconfig(self.status_text_id,
+                text="[ READY ] Load image or start camera")
+            
+            print("🔙 Returned to main menu")
+    
+    def show_save_confirmation_dialog(self):
+        """显示保存确认对话框（黑粉黄风格）"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Save Recording?")
+        dialog.geometry("480x280")
+        dialog.configure(bg=self.bg_black)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 返回值
+        result = [None]
+        
+        # Mac风格边框
+        border_frame = tk.Frame(dialog, bg=self.primary_pink, bd=0)
+        border_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=3)
+        
+        content_frame = tk.Frame(border_frame, bg=self.bg_black, bd=0)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        
+        # 标题
+        title_label = tk.Label(
+            content_frame,
+            text="💾 Save Recording?",
+            font=self.pixel_font_large,
+            bg=self.bg_black,
+            fg=self.primary_pink
+        )
+        title_label.pack(pady=(20, 15))
+        
+        # 信息文本
+        info_text = f"You have {len(self.camera_frames)} frames recorded.\n\n" + \
+                    "Do you want to save before going back?"
+        
+        info_label = tk.Label(
+            content_frame,
+            text=info_text,
+            font=self.pixel_font_medium,
+            bg=self.bg_black,
+            fg=self.hover_beige,
+            justify=tk.CENTER
+        )
+        info_label.pack(pady=10)
+        
+        # 按钮框架
+        button_frame = tk.Frame(content_frame, bg=self.bg_black)
+        button_frame.pack(pady=20)
+        
+        def on_yes():
+            result[0] = True
+            dialog.destroy()
+        
+        def on_no():
+            result[0] = False
+            dialog.destroy()
+        
+        def on_cancel():
+            result[0] = None
+            dialog.destroy()
+        
+        # YES 按钮
+        yes_btn = tk.Button(
+            button_frame,
+            text="YES\nSave & Back",
+            font=self.pixel_font_medium,
+            bg=self.hover_beige,
+            fg=self.bg_black,
+            activebackground=self.primary_pink,
+            activeforeground=self.bg_black,
+            bd=3,
+            relief=tk.RAISED,
+            width=12,
+            height=2,
+            cursor="hand2",
+            command=on_yes
+        )
+        yes_btn.pack(side=tk.LEFT, padx=8)
+        
+        # NO 按钮
+        no_btn = tk.Button(
+            button_frame,
+            text="NO\nDiscard",
+            font=self.pixel_font_medium,
+            bg=self.hover_beige,
+            fg=self.bg_black,
+            activebackground=self.primary_pink,
+            activeforeground=self.bg_black,
+            bd=3,
+            relief=tk.RAISED,
+            width=12,
+            height=2,
+            cursor="hand2",
+            command=on_no
+        )
+        no_btn.pack(side=tk.LEFT, padx=8)
+        
+        # CANCEL 按钮
+        cancel_btn = tk.Button(
+            button_frame,
+            text="CANCEL\nStay",
+            font=self.pixel_font_medium,
+            bg=self.hover_beige,
+            fg=self.bg_black,
+            activebackground=self.primary_pink,
+            activeforeground=self.bg_black,
+            bd=3,
+            relief=tk.RAISED,
+            width=12,
+            height=2,
+            cursor="hand2",
+            command=on_cancel
+        )
+        cancel_btn.pack(side=tk.LEFT, padx=8)
+        
+        # 键盘快捷键
+        dialog.bind('<Return>', lambda e: on_yes())
+        dialog.bind('<Escape>', lambda e: on_cancel())
+        
+        # 等待对话框关闭
+        dialog.wait_window()
+        
+        return result[0]
     
     def unbind_camera_keyboard_controls(self):
         """解绑摄像头模式的键盘控制"""
@@ -1433,6 +1862,7 @@ class Image2MelodyApp:
                 widget.unbind('<space>')
                 widget.unbind('r')
                 widget.unbind('R')
+                widget.unbind('<Escape>')
         except Exception as e:
             print(f"⚠️  Error unbinding: {e}")
             pass
@@ -1726,7 +2156,7 @@ class Image2MelodyApp:
             error_msg = f"Failed to start animation: {str(e)}"
             print(f"✗ {error_msg}")
             traceback.print_exc()
-            messagebox.showerror("Error", error_msg)
+            self.show_mac_dialog("Error", error_msg, dialog_type="error")
     
     def animate_next_pixel(self):
         """Animate next pixel block with fade trace effects and play note with RGBA support"""
@@ -2128,7 +2558,7 @@ class Image2MelodyApp:
     def save_melody(self):
         """保存生成的旋律为MIDI文件"""
         if not self.melody_generator.recorded_notes:
-            messagebox.showwarning("No Melody", "No melody to save!")
+            self.show_mac_dialog("No Melody", "No melody to save!", dialog_type="warning")
             return
         
         file_path = filedialog.asksaveasfilename(
@@ -2147,18 +2577,18 @@ class Image2MelodyApp:
                     file_path += '.mid'
                 
                 self.melody_generator.save_recorded_melody(file_path)
-                messagebox.showinfo("Success", f"Melody saved successfully!\n\n{len(self.melody_generator.recorded_notes)} notes saved to:\n{file_path}")
+                self.show_mac_dialog("Success", f"Melody saved successfully!\n\n{len(self.melody_generator.recorded_notes)} notes saved to:\n{file_path}", dialog_type="success")
                 self.status_canvas.itemconfig(self.status_text_id,
                     text=f"[ SAVED ] Melody saved to {os.path.basename(file_path)}")
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                messagebox.showerror("Error", f"Failed to save melody: {str(e)}")
+                self.show_mac_dialog("Error", f"Failed to save melody: {str(e)}", dialog_type="error")
     
     def export_video(self):
         """导出视频（包含音频）"""
         if not self.animation_frames:
-            messagebox.showwarning("No Video", "No animation frames to export!\n\nFrames are only recorded during animation playback.")
+            self.show_mac_dialog("No Video", "No animation frames to export!\n\nFrames are only recorded during animation playback.", dialog_type="warning")
             return
         
         print(f"📹 Starting video export: {len(self.animation_frames)} frames")
@@ -2183,7 +2613,7 @@ class Image2MelodyApp:
                     print(f"✓ imageio loaded: {imageio.__version__}")
                 except ImportError:
                     print("✗ imageio not installed")
-                    messagebox.showerror("Error", "imageio library is required for video export.\n\nInstall with:\npip install imageio imageio-ffmpeg")
+                    self.show_mac_dialog("Error", "imageio library is required for video export.\n\nInstall with:\npip install imageio imageio-ffmpeg", dialog_type="error")
                     return
                 
                 self.status_canvas.itemconfig(self.status_text_id,
@@ -2216,13 +2646,14 @@ class Image2MelodyApp:
                 
                 print(f"✅ Video exported successfully!")
                 
-                messagebox.showinfo("Success", 
+                self.show_mac_dialog("Success", 
                     f"Video exported successfully!\n\n"
                     f"Frames: {len(self.animation_frames)}\n"
                     f"FPS: {fps}\n"
                     f"Duration: {len(self.animation_frames)/fps:.2f}s\n"
                     f"File: {file_path}\n\n"
-                    f"Note: Export audio separately and combine in video editor if needed.")
+                    f"Note: Export audio separately and combine in video editor if needed.",
+                    dialog_type="success")
                 
                 self.status_canvas.itemconfig(self.status_text_id,
                     text=f"[ EXPORTED ] Video saved to {os.path.basename(file_path)}")
@@ -2231,13 +2662,13 @@ class Image2MelodyApp:
                 import traceback
                 print(f"✗ Video export failed:")
                 traceback.print_exc()
-                messagebox.showerror("Error", f"Failed to export video:\n\n{str(e)}\n\nCheck terminal for details.")
+                self.show_mac_dialog("Error", f"Failed to export video:\n\n{str(e)}\n\nCheck terminal for details.", dialog_type="error")
 
     
     def export_audio(self):
         """导出音频WAV文件"""
         if not self.melody_generator.recorded_notes:
-            messagebox.showwarning("No Audio", "No audio to export!")
+            self.show_mac_dialog("No Audio", "No audio to export!", dialog_type="warning")
             return
         
         file_path = filedialog.asksaveasfilename(
@@ -2290,12 +2721,13 @@ class Image2MelodyApp:
                     wav_file.writeframes(audio_data.tobytes())
                 
                 duration_sec = len(audio_data) / sample_rate
-                messagebox.showinfo("Success", 
+                self.show_mac_dialog("Success", 
                     f"Audio exported successfully!\n\n"
                     f"Notes: {len(self.melody_generator.recorded_notes)}\n"
                     f"Duration: {duration_sec:.2f}s\n"
                     f"Sample Rate: {sample_rate} Hz\n"
-                    f"File: {file_path}")
+                    f"File: {file_path}",
+                    dialog_type="success")
                 
                 self.status_canvas.itemconfig(self.status_text_id,
                     text=f"[ EXPORTED ] Audio saved to {os.path.basename(file_path)}")
@@ -2303,7 +2735,7 @@ class Image2MelodyApp:
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                messagebox.showerror("Error", f"Failed to export audio: {str(e)}")
+                self.show_mac_dialog("Error", f"Failed to export audio: {str(e)}", dialog_type="error")
     
     def reset_and_load(self):
         """Reset and load new image"""
