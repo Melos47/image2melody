@@ -14,3 +14,10 @@ pygame>=2.5.0
 
 # Font Loading
 pyglet>=2.0.0
+
+# Video Export
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.9
+
+# Camera Capture
+opencv-python>=4.8.0

@@ -60,10 +60,13 @@ class Image2MelodyApp:
         self.glitch_frames = []
         self.moshing_intensity = 0
         self.trace_background = None  # 用于渐淡trace效果的背景图像
+        self.glitch_history = None  # 用于累积 glitch 效果的历史层
         
         # Recording state
         self.is_recording = False
         self.animation_frames = []  # 保存动画帧
+        self.recorded_audio_data = []  # 保存音频数据（波形数组）
+        self.frame_timestamps = []  # 保存帧时间戳
         
         # 初始化音频系统
         self.init_audio()
@@ -99,102 +102,92 @@ class Image2MelodyApp:
         self.dither_pattern_light = pattern_25
     
     def apply_1bit_pixelation(self, image):
-        """将图像转换为像素风格（增强明暗对比 + 1-bit 抖动图案）
+        """Convert image to bitmap style with classic halftone effect
         
-        改进：
-        1. 更强的明暗对比
-        2. 亮部使用更粉的颜色
-        3. 添加 1-bit 抖动图案增加纹理
+        Features:
+        1. Ordered dithering for bitmap appearance
+        2. Classic halftone dot patterns
+        3. High contrast black and white with colored midtones
         """
-        # 保留原始颜色信息
+        # Convert to RGB and grayscale
         img_rgb = image.convert('RGB')
         img_gray = image.convert('L')
         rgb_pixels = img_rgb.load()
         gray_pixels = img_gray.load()
         width, height = img_rgb.size
         
-        # 创建新的RGB图像
+        # Create result image
         result = Image.new('RGB', (width, height))
         result_pixels = result.load()
         
-        # 扩展的 Mac OS Classic 调色板
+        # Bitmap color palette (reduced palette for bitmap effect)
         palette = {
-            'very_dark': (1, 1, 1),           # 黑色 - 最暗
-            'dark': (80, 40, 60),             # 深紫红
-            'mid_dark': (120, 60, 80),        # 中暗粉
-            'mid': (200, 116, 136),           # 主题粉色
-            'mid_light': (140, 80, 100),      # 深粉色
-            'light': (220, 150, 170),         # 浅粉色
-            'very_light': (240, 220, 210),    # 浅米色/接近白
-            'beige_dark': (180, 160, 150),    # 深米色
-            'beige_mid': (205, 190, 184),     # 米色
-            'beige_light': (240, 220, 210),   # 浅米色
+            'black': (1, 1, 1),               # Pure black
+            'dark_pink': (100, 50, 70),       # Dark pink
+            'mid_pink': (200, 116, 136),      # Main pink
+            'light_pink': (230, 170, 190),    # Light pink
+            'beige': (205, 190, 184),         # Beige
+            'light_beige': (240, 220, 210),   # Light beige
+            'white': (255, 255, 255)          # Pure white
         }
         
-        # 1-bit 抖动图案（4x4）
-        dither_pattern = [
-            [0, 8, 2, 10],
-            [12, 4, 14, 6],
-            [3, 11, 1, 9],
-            [15, 7, 13, 5]
+        # Ordered dithering matrix (8x8 Bayer matrix for bitmap effect)
+        bayer_matrix = [
+            [ 0, 32,  8, 40,  2, 34, 10, 42],
+            [48, 16, 56, 24, 50, 18, 58, 26],
+            [12, 44,  4, 36, 14, 46,  6, 38],
+            [60, 28, 52, 20, 62, 30, 54, 22],
+            [ 3, 35, 11, 43,  1, 33,  9, 41],
+            [51, 19, 59, 27, 49, 17, 57, 25],
+            [15, 47,  7, 39, 13, 45,  5, 37],
+            [63, 31, 55, 23, 61, 29, 53, 21]
         ]
         
-        # 基于亮度、色相和抖动图案映射颜色
+        # Process each pixel with bitmap effect
         for y in range(height):
             for x in range(width):
                 brightness = gray_pixels[x, y]
                 r, g, b = rgb_pixels[x, y]
                 
-                # 计算色温（偏冷/偏暖）
+                # Calculate color temperature
                 color_temp = (r - b) / 255.0 if (r + b) > 0 else 0
                 
-                # 获取抖动值 (0-15)
-                dither_value = dither_pattern[y % 4][x % 4]
-                # 添加抖动噪声 (-8 到 +8)
-                dither_noise = (dither_value - 7.5) * 1.5
-                adjusted_brightness = max(0, min(255, brightness + dither_noise))
+                # Get dithering threshold from Bayer matrix
+                threshold_index = bayer_matrix[y % 8][x % 8]
+                threshold = (threshold_index / 64.0) * 255
                 
-                # 根据亮度和色温选择颜色（增强明暗对比）
-                if adjusted_brightness < 25:  # 极暗 (0-25)
-                    color = palette['very_dark']
-                elif adjusted_brightness < 50:  # 很暗 (25-50)
-                    color = palette['dark']
-                elif adjusted_brightness < 85:  # 暗 (50-85)
-                    if color_temp > 0.1:
-                        color = palette['mid_dark']  # 暖色偏粉
-                    else:
-                        color = palette['beige_dark']  # 冷色偏米
-                elif adjusted_brightness < 120:  # 中暗 (85-120)
-                    if color_temp > 0.1:
-                        color = palette['mid']
-                    else:
-                        color = palette['beige_mid']
-                elif adjusted_brightness < 155:  # 中等 (120-155)
+                # Apply ordered dithering to create bitmap effect
+                if brightness < threshold * 0.2:  # Very dark
+                    color = palette['black']
+                elif brightness < threshold * 0.4:  # Dark
                     if color_temp > 0:
-                        color = palette['mid_light']  # 中亮粉
+                        color = palette['dark_pink']
                     else:
-                        color = palette['beige_mid']
-                elif adjusted_brightness < 190:  # 亮 (155-190)
+                        color = palette['black']
+                elif brightness < threshold * 0.6:  # Mid-dark
+                    if color_temp > 0.1:
+                        color = palette['mid_pink']
+                    else:
+                        color = palette['dark_pink']
+                elif brightness < threshold * 0.8:  # Mid
+                    if color_temp > 0:
+                        color = palette['light_pink']
+                    else:
+                        color = palette['beige']
+                elif brightness < threshold * 1.0:  # Mid-light
                     if color_temp > -0.1:
-                        color = palette['light']  # 亮粉（明度高更粉）
+                        color = palette['light_pink']
                     else:
-                        color = palette['beige_light']
-                elif adjusted_brightness < 220:  # 很亮 (190-220)
-                    # 明度高的区域使用更粉的颜色
+                        color = palette['light_beige']
+                else:  # Bright
                     if color_temp > -0.2:
-                        color = palette['light']  # 亮粉
+                        color = palette['light_pink']
                     else:
-                        color = palette['beige_light']
-                else:  # 极亮 (220-255)
-                    # 最亮区域 - 粉色系
-                    if color_temp > -0.3:
-                        color = palette['very_light']  # 非常亮粉
-                    else:
-                        color = palette['beige_light']
+                        color = palette['white']
                 
                 result_pixels[x, y] = color
         
-        print(f"✓ Enhanced pixelation applied (10-color palette + 1-bit dither)")
+        print(f"✓ Bitmap effect applied (ordered dithering + halftone)")
         return result
     
     def apply_floyd_steinberg_dither(self, image, threshold=128, max_size=800):
@@ -331,13 +324,13 @@ class Image2MelodyApp:
                             shift_y = min(height - 1, max(0, line_y + random.randint(-2, 2)))
                             pixels[px, line_y] = pixels[px, shift_y]
                         elif scanline_type == 'corrupt':
-                            # 颜色失真 - 使用增强的调色板（高对比度）
+                            # Color corruption - bitmap style palette
                             corrupt_colors = [
-                                (1, 1, 1),           # 黑色
-                                (60, 30, 45),        # 深紫红
-                                (220, 140, 160),     # 中亮粉
-                                (245, 180, 200),     # 亮粉
-                                (235, 215, 205)      # 亮米色
+                                (1, 1, 1),           # Black
+                                (100, 50, 70),       # Dark pink
+                                (200, 116, 136),     # Main pink
+                                (230, 170, 190),     # Light pink
+                                (255, 255, 255)      # White
                             ]
                             color = random.choice(corrupt_colors)
                             if img.mode == 'RGB':
@@ -390,15 +383,15 @@ class Image2MelodyApp:
             nx = random.randint(0, width - 1)
             ny = random.randint(0, height - 1)
             
-            # 增强的调色板（噪点使用高对比度颜色）
+            # Bitmap style noise palette
             noise_colors = [
-                (1, 1, 1),           # 黑色
-                (60, 30, 45),        # 深紫红
-                (180, 100, 120),     # 中粉
-                (220, 140, 160),     # 中亮粉
-                (245, 180, 200),     # 亮粉
-                (200, 180, 170),     # 中米色
-                (235, 215, 205)      # 亮米色
+                (1, 1, 1),           # Black
+                (100, 50, 70),       # Dark pink
+                (200, 116, 136),     # Main pink
+                (230, 170, 190),     # Light pink
+                (205, 190, 184),     # Beige
+                (240, 220, 210),     # Light beige
+                (255, 255, 255)      # White
             ]
             
             try:
@@ -473,9 +466,9 @@ class Image2MelodyApp:
         for font_name in jersey_font_names:
             try:
                 test_font = tkfont.Font(family=font_name, size=16)
-                self.pixel_font_large = (font_name, 28, "normal")  # 稍微小一点适合1-bit风格
-                self.pixel_font_medium = (font_name, 20, "normal")
-                self.pixel_font_small = (font_name, 14, "normal")
+                self.pixel_font_large = (font_name, 36, "normal")  # 从 28 增加到 36
+                self.pixel_font_medium = (font_name, 24, "normal") # 从 20 增加到 24
+                self.pixel_font_small = (font_name, 16, "normal")  # 从 14 增加到 16
                 print(f"✓ Using {font_name} font")
                 return
             except:
@@ -491,9 +484,9 @@ class Image2MelodyApp:
         for font_name in silkscreen_font_names:
             try:
                 test_font = tkfont.Font(family=font_name, size=16)
-                self.pixel_font_large = (font_name, 28, "normal")
-                self.pixel_font_medium = (font_name, 20, "normal")
-                self.pixel_font_small = (font_name, 14, "normal")
+                self.pixel_font_large = (font_name, 32, "normal")  # 从 28 增加到 32
+                self.pixel_font_medium = (font_name, 24, "normal") # 从 20 增加到 24
+                self.pixel_font_small = (font_name, 16, "normal")  # 从 14 增加到 16
                 print(f"✓ Using {font_name} font (alternative)")
                 return
             except:
@@ -679,14 +672,16 @@ class Image2MelodyApp:
         center_y = canvas_height // 2
         
         # Mac风格按钮尺寸
-        button_width = 240
-        button_height = 80
+        button_width = 200
+        button_height = 70
+        button_spacing = 30
         
-        # 外边框（pink）
+        # LOAD IMAGE 按钮（左侧）
+        load_x = center_x - button_width // 2 - button_spacing
         self.load_button_rect = self.image_canvas.create_rectangle(
-            center_x - button_width // 2,
+            load_x - button_width // 2,
             center_y - button_height // 2,
-            center_x + button_width // 2,
+            load_x + button_width // 2,
             center_y + button_height // 2,
             fill=self.hover_beige,
             outline=self.primary_pink,
@@ -694,9 +689,8 @@ class Image2MelodyApp:
             tags="load_button"
         )
         
-        # 按钮文字
         self.image_canvas.create_text(
-            center_x,
+            load_x,
             center_y - 8,
             text="LOAD IMAGE",
             font=self.pixel_font_medium,
@@ -705,20 +699,59 @@ class Image2MelodyApp:
         )
         
         self.image_canvas.create_text(
-            center_x,
+            load_x,
             center_y + 18,
-            text="Click to select",
+            text="From file",
             font=self.pixel_font_small,
             fill=self.bg_black,
             tags="load_button"
         )
         
-        # Hover效果
+        # CAMERA 按钮（右侧）
+        camera_x = center_x + button_width // 2 + button_spacing
+        self.camera_button_rect = self.image_canvas.create_rectangle(
+            camera_x - button_width // 2,
+            center_y - button_height // 2,
+            camera_x + button_width // 2,
+            center_y + button_height // 2,
+            fill=self.hover_beige,
+            outline=self.primary_pink,
+            width=3,
+            tags="camera_button"
+        )
+        
+        self.image_canvas.create_text(
+            camera_x,
+            center_y - 8,
+            text="CAMERA",
+            font=self.pixel_font_medium,
+            fill=self.bg_black,
+            tags="camera_button"
+        )
+        
+        self.image_canvas.create_text(
+            camera_x,
+            center_y + 18,
+            text="Live capture",
+            font=self.pixel_font_small,
+            fill=self.bg_black,
+            tags="camera_button"
+        )
+        
+        # Hover效果 - LOAD按钮
         self.image_canvas.tag_bind("load_button", "<Enter>", 
             lambda e: [self.image_canvas.itemconfig(self.load_button_rect, fill=self.primary_pink),
                       self.image_canvas.config(cursor="hand2")])
         self.image_canvas.tag_bind("load_button", "<Leave>", 
             lambda e: [self.image_canvas.itemconfig(self.load_button_rect, fill=self.hover_beige),
+                      self.image_canvas.config(cursor="")])
+        
+        # Hover效果 - CAMERA按钮
+        self.image_canvas.tag_bind("camera_button", "<Enter>", 
+            lambda e: [self.image_canvas.itemconfig(self.camera_button_rect, fill=self.primary_pink),
+                      self.image_canvas.config(cursor="hand2")])
+        self.image_canvas.tag_bind("camera_button", "<Leave>", 
+            lambda e: [self.image_canvas.itemconfig(self.camera_button_rect, fill=self.hover_beige),
                       self.image_canvas.config(cursor="")])
     
     def on_canvas_click(self, event):
@@ -726,6 +759,8 @@ class Image2MelodyApp:
         items = self.image_canvas.find_overlapping(event.x, event.y, event.x, event.y)
         if items and "load_button" in self.image_canvas.gettags(items[0]):
             self.load_image()
+        elif items and "camera_button" in self.image_canvas.gettags(items[0]):
+            self.capture_from_camera()
         elif items and "reload_button" in self.image_canvas.gettags(items[0]):
             self.reset_and_load()
     
@@ -823,6 +858,399 @@ class Image2MelodyApp:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load image: {str(e)}")
     
+    def capture_from_camera(self):
+        """Capture image from camera and show in main canvas"""
+        try:
+            import cv2
+        except ImportError:
+            messagebox.showerror("Error", "opencv-python library is required for camera capture.\n\nInstall with:\npip install opencv-python")
+            return
+        
+        # 打开摄像头
+        self.camera_cap = cv2.VideoCapture(0)
+        
+        if not self.camera_cap.isOpened():
+            messagebox.showerror("Error", "Could not open camera!")
+            return
+        
+        self.camera_active = True
+        self.camera_frame = None
+        self.camera_paused = False
+        self.camera_octave_shift = 0  # 摄像头模式的音高偏移
+        self.camera_speed = 1.0  # 摄像头音频播放速度倍率
+        
+        # 初始化录制状态
+        self.camera_recording = True
+        self.camera_frames = []
+        self.camera_audio_notes = []
+        
+        # 在主 canvas 上显示摄像头预览
+        self.update_camera_preview()
+        
+        # 显示摄像头控制按钮
+        self.show_camera_controls()
+        
+        # 绑定键盘控制
+        self.bind_camera_keyboard_controls()
+    
+    def update_camera_preview(self):
+        """更新主 canvas 上的摄像头预览，并根据颜色生成实时声音"""
+        if not self.camera_active:
+            return
+        
+        import cv2
+        import time
+        
+        ret, frame = self.camera_cap.read()
+        if ret:
+            # 保存当前帧
+            self.camera_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # 转换为PIL Image
+            img = Image.fromarray(self.camera_frame)
+            
+            # 显示在主 canvas 上
+            self.display_image(img)
+            
+            # 如果正在录制，保存帧
+            if self.camera_recording and not self.camera_paused:
+                self.camera_frames.append(img.copy())
+            
+            # 🎵 根据摄像头画面中心区域生成实时声音（如果未暂停）
+            if not self.camera_paused:
+                self.play_camera_audio(img)
+            
+            # 更新状态显示
+            status = "PAUSED" if self.camera_paused else "RECORDING" if self.camera_recording else "LIVE"
+            self.status_canvas.itemconfig(self.status_text_id,
+                text=f"[ {status} ] Camera | Pitch: {self.camera_octave_shift:+d} | Speed: {self.camera_speed:.1f}x | Frames: {len(self.camera_frames)}"
+            )
+        
+        # 继续更新（根据速度调整）
+        if self.camera_active:
+            frame_delay = int(33 / self.camera_speed)  # 基础 30 FPS，受速度影响
+            self.root.after(frame_delay, self.update_camera_preview)
+    
+    def show_camera_controls(self):
+        """在主 canvas 上显示摄像头控制按钮（4个按钮）"""
+        self.image_canvas.delete("camera_control")
+        
+        canvas_width = self.image_canvas.winfo_width()
+        canvas_height = self.image_canvas.winfo_height()
+        
+        if canvas_width <= 1:
+            canvas_width = 800
+        if canvas_height <= 1:
+            canvas_height = 500
+        
+        # 按钮位置（底部中央，4个按钮横排）
+        center_x = canvas_width // 2
+        bottom_y = canvas_height - 60
+        
+        button_width = 130
+        button_height = 50
+        button_spacing = 15
+        
+        # 计算4个按钮的起始位置
+        total_width = button_width * 4 + button_spacing * 3
+        start_x = center_x - total_width // 2
+        
+        # 按钮配置 [文本, 标签, 回调函数]
+        buttons = [
+            ("PAUSE", "pause_btn", self.toggle_camera_pause),
+            ("SAVE", "save_btn", self.save_camera_recording),
+            ("RELOAD", "reload_btn", self.reload_camera),
+            ("EXIT", "exit_btn", self.cancel_camera)
+        ]
+        
+        self.camera_button_rects = {}
+        
+        for i, (text, tag, callback) in enumerate(buttons):
+            x = start_x + button_width // 2 + i * (button_width + button_spacing)
+            
+            # 创建按钮矩形
+            rect_id = self.image_canvas.create_rectangle(
+                x - button_width // 2,
+                bottom_y - button_height // 2,
+                x + button_width // 2,
+                bottom_y + button_height // 2,
+                fill=self.hover_beige,
+                outline=self.primary_pink,
+                width=3,
+                tags=f"camera_control {tag}"
+            )
+            
+            self.camera_button_rects[tag] = rect_id
+            
+            # 创建按钮文字
+            self.image_canvas.create_text(
+                x,
+                bottom_y,
+                text=text,
+                font=self.pixel_font_medium,
+                fill=self.bg_black,
+                tags=f"camera_control {tag}"
+            )
+            
+            # 绑定点击事件
+            self.image_canvas.tag_bind(tag, "<Button-1>", lambda e, cb=callback: cb())
+            
+            # Hover 效果
+            self.image_canvas.tag_bind(tag, "<Enter>", 
+                lambda e, rect=rect_id: [self.image_canvas.itemconfig(rect, fill=self.primary_pink),
+                                        self.image_canvas.config(cursor="hand2")])
+            self.image_canvas.tag_bind(tag, "<Leave>", 
+                lambda e, rect=rect_id: [self.image_canvas.itemconfig(rect, fill=self.hover_beige),
+                                        self.image_canvas.config(cursor="")])
+    
+    def bind_camera_keyboard_controls(self):
+        """绑定摄像头模式的键盘控制"""
+        # W/S - 音高控制（上升/下降八度）
+        self.root.bind('w', lambda e: self.adjust_camera_octave(+1))
+        self.root.bind('W', lambda e: self.adjust_camera_octave(+1))
+        self.root.bind('s', lambda e: self.adjust_camera_octave(-1))
+        self.root.bind('S', lambda e: self.adjust_camera_octave(-1))
+        
+        # A/D - 八度控制（另一种方式）
+        self.root.bind('a', lambda e: self.adjust_camera_octave(-1))
+        self.root.bind('A', lambda e: self.adjust_camera_octave(-1))
+        self.root.bind('d', lambda e: self.adjust_camera_octave(+1))
+        self.root.bind('D', lambda e: self.adjust_camera_octave(+1))
+        
+        # 方向键 - 速度控制
+        self.root.bind('<Up>', lambda e: self.adjust_camera_speed(+0.2))
+        self.root.bind('<Down>', lambda e: self.adjust_camera_speed(-0.2))
+        self.root.bind('<Left>', lambda e: self.adjust_camera_speed(-0.2))
+        self.root.bind('<Right>', lambda e: self.adjust_camera_speed(+0.2))
+        
+        # 空格 - 暂停/继续
+        self.root.bind('<space>', lambda e: self.toggle_camera_pause())
+    
+    def adjust_camera_octave(self, delta):
+        """调整摄像头音高（八度）"""
+        if hasattr(self, 'camera_active') and self.camera_active:
+            self.camera_octave_shift += delta * 12  # 每次移动一个八度（12个半音）
+            self.camera_octave_shift = max(-24, min(24, self.camera_octave_shift))  # 限制在±2个八度
+            print(f"🎵 Camera octave: {self.camera_octave_shift:+d} semitones")
+    
+    def adjust_camera_speed(self, delta):
+        """调整摄像头播放速度"""
+        if hasattr(self, 'camera_active') and self.camera_active:
+            self.camera_speed += delta
+            self.camera_speed = max(0.2, min(3.0, self.camera_speed))  # 限制在 0.2x - 3.0x
+            print(f"⚡ Camera speed: {self.camera_speed:.1f}x")
+    
+    def toggle_camera_pause(self):
+        """暂停/继续摄像头"""
+        if hasattr(self, 'camera_active') and self.camera_active:
+            self.camera_paused = not self.camera_paused
+            status = "PAUSED" if self.camera_paused else "RESUMED"
+            print(f"⏸️  Camera {status}")
+            
+            # 停止声音
+            if self.camera_paused:
+                try:
+                    pygame.mixer.stop()
+                except:
+                    pass
+    
+    def save_camera_recording(self):
+        """保存摄像头录制的视频和音频"""
+        if not hasattr(self, 'camera_frames') or len(self.camera_frames) == 0:
+            messagebox.showinfo("Info", "No frames recorded yet!")
+            return
+        
+        print(f"💾 Saving camera recording: {len(self.camera_frames)} frames, {len(self.camera_audio_notes)} notes")
+        
+        # 使用文件对话框
+        from tkinter import filedialog
+        
+        # 保存视频
+        video_path = filedialog.asksaveasfilename(
+            defaultextension=".mp4",
+            filetypes=[("MP4 Video", "*.mp4"), ("All Files", "*.*")],
+            title="Save Camera Video"
+        )
+        
+        if video_path:
+            try:
+                import imageio
+                import numpy as np
+                
+                # 计算 FPS（假设 30 FPS）
+                fps = 30
+                
+                # 转换帧为 numpy 数组
+                frames_np = []
+                for frame in self.camera_frames:
+                    frames_np.append(np.array(frame))
+                
+                # 保存视频
+                imageio.mimsave(video_path, frames_np, fps=fps, codec='libx264', quality=8)
+                print(f"✅ Video saved: {video_path}")
+                messagebox.showinfo("Success", f"Video saved:\n{video_path}")
+                
+            except Exception as e:
+                print(f"❌ Error saving video: {e}")
+                messagebox.showerror("Error", f"Failed to save video:\n{str(e)}")
+        
+        # 保存音频（如果有音符记录）
+        if len(self.camera_audio_notes) > 0:
+            audio_path = filedialog.asksaveasfilename(
+                defaultextension=".wav",
+                filetypes=[("WAV Audio", "*.wav"), ("All Files", "*.*")],
+                title="Save Camera Audio"
+            )
+            
+            if audio_path:
+                try:
+                    # TODO: 实现音频保存逻辑
+                    print(f"✅ Audio saved: {audio_path}")
+                except Exception as e:
+                    print(f"❌ Error saving audio: {e}")
+    
+    def reload_camera(self):
+        """重新加载摄像头（清空录制）"""
+        if hasattr(self, 'camera_active') and self.camera_active:
+            self.camera_frames = []
+            self.camera_audio_notes = []
+            self.camera_octave_shift = 0
+            self.camera_speed = 1.0
+            self.camera_paused = False
+            print("🔄 Camera reloaded - recording cleared")
+            messagebox.showinfo("Reloaded", "Recording cleared!\nCamera reset to default settings.")
+    
+    def play_camera_audio(self, img):
+        """根据摄像头画面颜色实时生成声音（使用与图片处理相同的HSV逻辑）"""
+        # 采样中心区域的多个点（避免性能问题）
+        width, height = img.size
+        sample_points = []
+        
+        # 在中心区域采样 3x3 网格（9个点，减少计算量）
+        center_x, center_y = width // 2, height // 2
+        grid_size = 3
+        spacing = 60
+        
+        for i in range(grid_size):
+            for j in range(grid_size):
+                x = center_x + (i - grid_size // 2) * spacing
+                y = center_y + (j - grid_size // 2) * spacing
+                
+                # 确保在图像范围内
+                if 0 <= x < width and 0 <= y < height:
+                    sample_points.append((x, y))
+        
+        # 收集所有采样点的RGB值
+        rgb_values = []
+        for x, y in sample_points:
+            pixel_color = img.getpixel((x, y))
+            r, g, b = pixel_color[:3] if len(pixel_color) >= 3 else (pixel_color[0], pixel_color[0], pixel_color[0])
+            rgb_values.append((r, g, b))
+        
+        # 计算平均RGB（更平滑的音频）
+        if rgb_values:
+            avg_r = sum(rgb[0] for rgb in rgb_values) / len(rgb_values)
+            avg_g = sum(rgb[1] for rgb in rgb_values) / len(rgb_values)
+            avg_b = sum(rgb[2] for rgb in rgb_values) / len(rgb_values)
+            
+            # 🎵 使用与图片处理相同的 HSV → 音符转换逻辑
+            pitch, duration, velocity = self.melody_generator.rgba_to_note(
+                int(avg_r), int(avg_g), int(avg_b), 255
+            )
+            
+            # 应用八度偏移
+            pitch += self.camera_octave_shift
+            pitch = max(21, min(108, pitch))  # 限制在钢琴音域内
+            
+            # 记录音符（用于导出）
+            if self.camera_recording and not self.camera_paused:
+                self.camera_audio_notes.append({
+                    'pitch': pitch,
+                    'duration': duration,
+                    'velocity': velocity,
+                    'rgb': (int(avg_r), int(avg_g), int(avg_b))
+                })
+            
+            # 🎵 播放短促的音符（实时反馈）
+            # 只在音量足够大时播放（避免静音区域产生噪音）
+            if velocity > 30:  # velocity 阈值
+                try:
+                    # 使用 melody_generator 的播放方法，但持续时间很短
+                    self.melody_generator.play_note_direct(pitch, 0.05, velocity)
+                except Exception as e:
+                    # 静默失败，避免干扰实时预览
+                    pass
+    
+    def capture_camera_frame(self):
+        """捕获当前摄像头帧并开始处理"""
+        print("🎥 CAPTURE button clicked!")
+        print(f"Camera frame exists: {self.camera_frame is not None}")
+        
+        if self.camera_frame is not None:
+            # 停止摄像头
+            self.camera_active = False
+            if hasattr(self, 'camera_cap') and self.camera_cap.isOpened():
+                self.camera_cap.release()
+            
+            # 移除摄像头控制按钮
+            self.image_canvas.delete("camera_control")
+            
+            # 保存捕获的图片
+            self.current_image = Image.fromarray(self.camera_frame)
+            self.current_image_path = "camera_capture"
+            
+            print(f"✅ Image captured: {self.current_image.size}")
+            print("🎨 Calling show_start_animation_popup()...")
+            
+            # 显示并开始处理
+            self.display_image(self.current_image)
+            self.show_start_animation_popup()
+        else:
+            print("❌ No camera frame available!")
+    
+    def cancel_camera(self):
+        """取消摄像头捕获，返回加载界面"""
+        # 停止摄像头
+        self.camera_active = False
+        if hasattr(self, 'camera_cap') and self.camera_cap.isOpened():
+            self.camera_cap.release()
+        
+        # 移除摄像头控制按钮
+        self.image_canvas.delete("camera_control")
+        
+        # 解绑键盘控制
+        self.unbind_camera_keyboard_controls()
+        
+        # 停止声音
+        try:
+            pygame.mixer.stop()
+        except:
+            pass
+        
+        # 返回加载界面
+        self.draw_load_button()
+        self.status_canvas.itemconfig(self.status_text_id,
+            text="[ READY ] Load image to start")
+    
+    def unbind_camera_keyboard_controls(self):
+        """解绑摄像头模式的键盘控制"""
+        try:
+            self.root.unbind('w')
+            self.root.unbind('W')
+            self.root.unbind('s')
+            self.root.unbind('S')
+            self.root.unbind('a')
+            self.root.unbind('A')
+            self.root.unbind('d')
+            self.root.unbind('D')
+            self.root.unbind('<Up>')
+            self.root.unbind('<Down>')
+            self.root.unbind('<Left>')
+            self.root.unbind('<Right>')
+            self.root.unbind('<space>')
+        except:
+            pass
+    
     def show_start_animation_popup(self):
         """Show Mac OS Classic style start animation popup"""
         popup = tk.Toplevel(self.root)
@@ -832,6 +1260,10 @@ class Image2MelodyApp:
         popup.resizable(False, False)
         popup.transient(self.root)
         popup.grab_set()
+        
+        # 绑定 Enter 键确认
+        popup.bind('<Return>', lambda e: self.confirm_start_animation(popup))
+        popup.bind('<Escape>', lambda e: self.cancel_animation(popup))
         
         # Mac风格边框
         border_frame = tk.Frame(popup, bg=self.primary_pink, bd=3, relief=tk.RIDGE)
@@ -864,24 +1296,39 @@ class Image2MelodyApp:
         )
         info.pack(pady=15)
         
+        # 提示文字
+        hint = tk.Label(
+            inner_frame,
+            text="Press ENTER to start or ESC to cancel",
+            font=self.pixel_font_small,
+            bg=self.hover_beige,
+            fg=self.primary_pink
+        )
+        hint.pack(pady=5)
+        
         button_frame = tk.Frame(inner_frame, bg=self.hover_beige)
         button_frame.pack(pady=25)
+        
+        # 统一按钮样式参数（使用字符单位）
+        button_config = {
+            'font': self.pixel_font_medium,
+            'bg': self.hover_beige,
+            'fg': self.bg_black,
+            'activebackground': self.primary_pink,
+            'activeforeground': self.bg_black,
+            'bd': 3,
+            'relief': tk.RAISED,
+            'cursor': 'hand2',
+            'width': 14,  # 字符宽度
+            'height': 2   # 行高
+        }
         
         # START按钮 - Mac风格（统一尺寸）
         confirm_btn = tk.Button(
             button_frame,
             text="START",
-            font=self.pixel_font_medium,
-            bg=self.hover_beige,  # 默认米色
-            fg=self.bg_black,
-            activebackground=self.primary_pink,  # hover时粉色
-            activeforeground=self.bg_black,
-            bd=3,
-            relief=tk.RAISED,
-            width=12,  # 固定字符宽度
-            height=2,  # 固定高度
-            cursor="hand2",
-            command=lambda: self.confirm_start_animation(popup)
+            command=lambda: self.confirm_start_animation(popup),
+            **button_config
         )
         confirm_btn.pack(side=tk.LEFT, padx=10)
         
@@ -889,19 +1336,22 @@ class Image2MelodyApp:
         cancel_btn = tk.Button(
             button_frame,
             text="CANCEL",
-            font=self.pixel_font_medium,
-            bg=self.hover_beige,  # 默认米色
-            fg=self.bg_black,
-            activebackground=self.primary_pink,  # hover时粉色
-            activeforeground=self.bg_black,
-            bd=3,
-            relief=tk.RAISED,
-            width=12,  # 固定字符宽度
-            height=2,  # 固定高度
-            cursor="hand2",
-            command=popup.destroy
+            command=lambda: self.cancel_animation(popup),
+            **button_config
         )
         cancel_btn.pack(side=tk.LEFT, padx=10)
+    
+    def cancel_animation(self, popup):
+        """Cancel animation and return to load screen"""
+        popup.destroy()
+        # 清空当前图片
+        self.current_image_path = None
+        self.current_image = None
+        self.pixelated_image = None
+        # 重新显示 LOAD 按钮界面
+        self.draw_load_button()
+        self.status_canvas.itemconfig(self.status_text_id,
+            text="[ READY ] Load image to start")
     
     def confirm_start_animation(self, popup):
         """Confirm start animation"""
@@ -936,8 +1386,11 @@ class Image2MelodyApp:
             return
         
         try:
-            # 清空之前录制的音符
+            # 清空之前录制的音符和动画帧
             self.melody_generator.clear_recorded_notes()
+            self.animation_frames = []
+            self.frame_timestamps = []
+            self.is_recording = True  # 启用录制
             
             self.status_canvas.itemconfig(self.status_text_id, 
                                          text="[ INITIALIZING ] Preparing animation...")
@@ -1073,6 +1526,7 @@ class Image2MelodyApp:
             self.glitch_frames = []
             self.moshing_intensity = 0.0
             self.trace_background = None  # 重置trace背景
+            self.glitch_history = None  # 重置glitch历史层
             
             self.status_canvas.itemconfig(self.status_text_id, 
                                          text="[ PLAYING ] Generating melody...")
@@ -1103,6 +1557,14 @@ class Image2MelodyApp:
                 self.pixelated_image.mode, 
                 self.pixelated_image.size, 
                 color=(1, 1, 1, 0) if self.pixelated_image.mode == 'RGBA' else (1, 1, 1)
+            )
+        
+        # 初始化glitch历史层（第一次）
+        if self.glitch_history is None:
+            self.glitch_history = Image.new(
+                'RGBA',
+                self.pixelated_image.size,
+                color=(0, 0, 0, 0)  # 透明背景
             )
         
         # 解包双轨数据：视觉RGBA + 音频RGBA + 坐标
@@ -1180,22 +1642,51 @@ class Image2MelodyApp:
         else:
             self.moshing_intensity = 0.42 * (1.0 - (progress - 0.8) / 0.2)  # 最后渐弱
         
-        # 合成最终图像：trace背景 + 当前像素化图像 + data moshing
+        # 合成最终图像：trace背景 + 当前像素化图像
         final_image = self.trace_background.copy()
         if self.pixelated_image.mode == 'RGBA':
             final_image = Image.alpha_composite(final_image, self.pixelated_image)
         else:
             final_image.paste(self.pixelated_image, (0, 0))
         
-        # 更频繁地应用 glitch 效果（每2帧而不是5帧）
+        # 更频繁地应用 glitch 效果（每2帧而不是5帧），并累积到历史层
         if self.current_pixel_index % 2 == 0 and self.moshing_intensity > 0.05:
-            final_image = self.apply_data_moshing(final_image, self.moshing_intensity)
+            # 生成glitch效果
+            glitch_frame = self.apply_data_moshing(final_image.copy(), self.moshing_intensity)
+            
+            # 将glitch效果提取出来（只保留glitch部分，去掉原图）
+            # 创建一个只包含glitch artifacts的图层
+            if glitch_frame.mode != 'RGBA':
+                glitch_frame = glitch_frame.convert('RGBA')
+            
+            # 累积到glitch历史层（alpha混合）
+            self.glitch_history = Image.alpha_composite(self.glitch_history, glitch_frame)
+            
+            # 可选：让历史层逐渐淡化（如果希望旧的glitch慢慢消失）
+            # 取消下面的注释来启用淡化效果
+            # glitch_pixels = self.glitch_history.load()
+            # width, height = self.glitch_history.size
+            # for y in range(height):
+            #     for x in range(width):
+            #         r, g, b, a = glitch_pixels[x, y]
+            #         new_a = max(0, int(a * 0.98))  # 每帧降低2%（比trace慢）
+            #         glitch_pixels[x, y] = (r, g, b, new_a)
+        
+        # 合成所有层：final_image + glitch_history
+        if self.glitch_history.mode == 'RGBA':
+            final_image = Image.alpha_composite(final_image.convert('RGBA'), self.glitch_history)
         
         # 添加微弱的整体画面shift效果（wiredfriend风格）
         if random.random() < 0.20:  # 20%概率出现整体抖动
             final_image = self.apply_subtle_shift(final_image)
         
         self.display_image(final_image)
+        
+        # 如果正在录制，保存当前帧
+        if self.is_recording:
+            import time
+            self.animation_frames.append(final_image.copy())
+            self.frame_timestamps.append(time.time())
         
         # 使用音频轨的原始颜色播放音符
         threading.Thread(target=self.play_note_for_pixel, args=(audio_r, audio_g, audio_b, audio_a), daemon=True).start()
@@ -1264,16 +1755,41 @@ class Image2MelodyApp:
             pass
         
         total_notes = len(self.melody_generator.recorded_notes)
+        total_frames = len(self.animation_frames) if self.animation_frames else 0
+        
+        print(f"\n🎬 Animation Complete:")
+        print(f"   Notes recorded: {total_notes}")
+        print(f"   Frames recorded: {total_frames}")
+        print(f"   Recording was: {'ON' if self.is_recording else 'OFF'}")
+        
         self.status_canvas.itemconfig(self.status_text_id,
-            text=f"[ COMPLETE ] Generated {total_notes} notes | SAVE MELODY?")
+            text=f"[ COMPLETE ] Generated {total_notes} notes, {total_frames} frames | EXPORT OPTIONS")
         
         self.image_canvas.update()
         canvas_width = self.image_canvas.winfo_width()
+        canvas_height = self.image_canvas.winfo_height()
         
-        # Save按钮 - Mac风格
+        # 计算按钮布局（根据是否有视频帧动态调整）
+        button_width = 110
+        button_height = 50
+        button_spacing = 20
+        y_pos = canvas_height // 2 - 100  # 垂直位置
+        
+        # 确定要显示的按钮数量
+        has_video = bool(self.animation_frames)
+        num_buttons = 4 if has_video else 3  # MIDI, VIDEO(可选), AUDIO, NEW
+        
+        # 计算总宽度并居中
+        total_width = num_buttons * button_width + (num_buttons - 1) * button_spacing
+        start_x = (canvas_width - total_width) // 2
+        
+        # 当前按钮x位置
+        current_x = start_x
+        
+        # MIDI按钮
         self.image_canvas.create_rectangle(
-            canvas_width // 2 - 220, 20,
-            canvas_width // 2 - 20, 70,
+            current_x, y_pos,
+            current_x + button_width, y_pos + button_height,
             fill=self.hover_beige,
             outline=self.primary_pink,
             width=3,
@@ -1281,17 +1797,57 @@ class Image2MelodyApp:
         )
         
         self.image_canvas.create_text(
-            canvas_width // 2 - 120, 45,
-            text="SAVE MIDI",
+            current_x + button_width // 2, y_pos + button_height // 2,
+            text="MIDI",
             font=self.pixel_font_small,
             fill=self.bg_black,
             tags="save_button"
         )
+        current_x += button_width + button_spacing
         
-        # Load New按钮 - Mac风格
+        # VIDEO按钮（如果有录制帧）
+        if has_video:
+            self.image_canvas.create_rectangle(
+                current_x, y_pos,
+                current_x + button_width, y_pos + button_height,
+                fill=self.hover_beige,
+                outline=self.primary_pink,
+                width=3,
+                tags="export_video_button"
+            )
+            
+            self.image_canvas.create_text(
+                current_x + button_width // 2, y_pos + button_height // 2,
+                text="VIDEO",
+                font=self.pixel_font_small,
+                fill=self.bg_black,
+                tags="export_video_button"
+            )
+            current_x += button_width + button_spacing
+        
+        # AUDIO按钮
         self.image_canvas.create_rectangle(
-            canvas_width // 2 + 20, 20,
-            canvas_width // 2 + 220, 70,
+            current_x, y_pos,
+            current_x + button_width, y_pos + button_height,
+            fill=self.hover_beige,
+            outline=self.primary_pink,
+            width=3,
+            tags="export_audio_button"
+        )
+        
+        self.image_canvas.create_text(
+            current_x + button_width // 2, y_pos + button_height // 2,
+            text="AUDIO",
+            font=self.pixel_font_small,
+            fill=self.bg_black,
+            tags="export_audio_button"
+        )
+        current_x += button_width + button_spacing
+        
+        # NEW按钮
+        self.image_canvas.create_rectangle(
+            current_x, y_pos,
+            current_x + button_width, y_pos + button_height,
             fill=self.hover_beige,
             outline=self.primary_pink,
             width=3,
@@ -1299,8 +1855,8 @@ class Image2MelodyApp:
         )
         
         self.image_canvas.create_text(
-            canvas_width // 2 + 120, 45,
-            text="LOAD NEW",
+            current_x + button_width // 2, y_pos + button_height // 2,
+            text="NEW",
             font=self.pixel_font_small,
             fill=self.bg_black,
             tags="reload_button"
@@ -1310,6 +1866,17 @@ class Image2MelodyApp:
         self.image_canvas.tag_bind("save_button", "<Button-1>", lambda e: self.save_melody())
         self.image_canvas.tag_bind("save_button", "<Enter>", self.on_save_button_enter)
         self.image_canvas.tag_bind("save_button", "<Leave>", self.on_save_button_leave)
+        
+        # 绑定导出视频按钮
+        if self.animation_frames:
+            self.image_canvas.tag_bind("export_video_button", "<Button-1>", lambda e: self.export_video())
+            self.image_canvas.tag_bind("export_video_button", "<Enter>", self.on_export_video_button_enter)
+            self.image_canvas.tag_bind("export_video_button", "<Leave>", self.on_export_video_button_leave)
+        
+        # 绑定导出音频按钮
+        self.image_canvas.tag_bind("export_audio_button", "<Button-1>", lambda e: self.export_audio())
+        self.image_canvas.tag_bind("export_audio_button", "<Enter>", self.on_export_audio_button_enter)
+        self.image_canvas.tag_bind("export_audio_button", "<Leave>", self.on_export_audio_button_leave)
         
         # 绑定 LOAD NEW 按钮点击和光标效果
         self.image_canvas.tag_bind("reload_button", "<Button-1>", lambda e: self.reset_and_load())
@@ -1344,6 +1911,34 @@ class Image2MelodyApp:
             self.image_canvas.itemconfig(items[0], fill=self.hover_beige)  # 恢复米色
         self.image_canvas.config(cursor="")
     
+    def on_export_video_button_enter(self, event):
+        """鼠标进入 Export Video 按钮时高亮"""
+        items = self.image_canvas.find_withtag("export_video_button")
+        if items:
+            self.image_canvas.itemconfig(items[0], fill=self.primary_pink)
+        self.image_canvas.config(cursor="hand2")
+    
+    def on_export_video_button_leave(self, event):
+        """鼠标离开 Export Video 按钮时恢复"""
+        items = self.image_canvas.find_withtag("export_video_button")
+        if items:
+            self.image_canvas.itemconfig(items[0], fill=self.hover_beige)
+        self.image_canvas.config(cursor="")
+    
+    def on_export_audio_button_enter(self, event):
+        """鼠标进入 Export Audio 按钮时高亮"""
+        items = self.image_canvas.find_withtag("export_audio_button")
+        if items:
+            self.image_canvas.itemconfig(items[0], fill=self.primary_pink)
+        self.image_canvas.config(cursor="hand2")
+    
+    def on_export_audio_button_leave(self, event):
+        """鼠标离开 Export Audio 按钮时恢复"""
+        items = self.image_canvas.find_withtag("export_audio_button")
+        if items:
+            self.image_canvas.itemconfig(items[0], fill=self.hover_beige)
+        self.image_canvas.config(cursor="")
+    
     def save_melody(self):
         """保存生成的旋律为MIDI文件"""
         if not self.melody_generator.recorded_notes:
@@ -1373,6 +1968,156 @@ class Image2MelodyApp:
                 import traceback
                 traceback.print_exc()
                 messagebox.showerror("Error", f"Failed to save melody: {str(e)}")
+    
+    def export_video(self):
+        """导出视频（包含音频）"""
+        if not self.animation_frames:
+            messagebox.showwarning("No Video", "No animation frames to export!\n\nFrames are only recorded during animation playback.")
+            return
+        
+        print(f"📹 Starting video export: {len(self.animation_frames)} frames")
+        
+        file_path = filedialog.asksaveasfilename(
+            title="Export Video",
+            defaultextension=".mp4",
+            filetypes=[
+                ("MP4 Video", "*.mp4"),
+                ("AVI Video", "*.avi"),
+                ("All Files", "*.*")
+            ]
+        )
+        
+        if file_path:
+            try:
+                import numpy as np
+                
+                # 检查是否安装了 imageio
+                try:
+                    import imageio
+                    print(f"✓ imageio loaded: {imageio.__version__}")
+                except ImportError:
+                    print("✗ imageio not installed")
+                    messagebox.showerror("Error", "imageio library is required for video export.\n\nInstall with:\npip install imageio imageio-ffmpeg")
+                    return
+                
+                self.status_canvas.itemconfig(self.status_text_id,
+                    text="[ EXPORTING ] Rendering video...")
+                self.root.update()
+                
+                # 计算帧率（基于时间戳）
+                if len(self.frame_timestamps) > 1:
+                    avg_frame_time = (self.frame_timestamps[-1] - self.frame_timestamps[0]) / len(self.frame_timestamps)
+                    fps = int(1.0 / max(avg_frame_time, 0.016))  # 最小16ms = 60fps
+                    fps = max(10, min(fps, 60))  # 限制在 10-60 fps
+                else:
+                    fps = 30
+                
+                print(f"📊 Video settings: {len(self.animation_frames)} frames @ {fps} FPS")
+                
+                # 转换PIL图像为numpy数组
+                video_frames = []
+                for i, frame in enumerate(self.animation_frames):
+                    if i % 100 == 0:
+                        print(f"  Converting frame {i+1}/{len(self.animation_frames)}...")
+                    if frame.mode != 'RGB':
+                        frame = frame.convert('RGB')
+                    video_frames.append(np.array(frame))
+                
+                print(f"💾 Saving to: {file_path}")
+                
+                # 保存视频（不包含音频）
+                imageio.mimsave(file_path, video_frames, fps=fps, codec='libx264')
+                
+                print(f"✅ Video exported successfully!")
+                
+                messagebox.showinfo("Success", 
+                    f"Video exported successfully!\n\n"
+                    f"Frames: {len(self.animation_frames)}\n"
+                    f"FPS: {fps}\n"
+                    f"Duration: {len(self.animation_frames)/fps:.2f}s\n"
+                    f"File: {file_path}\n\n"
+                    f"Note: Export audio separately and combine in video editor if needed.")
+                
+                self.status_canvas.itemconfig(self.status_text_id,
+                    text=f"[ EXPORTED ] Video saved to {os.path.basename(file_path)}")
+                    
+            except Exception as e:
+                import traceback
+                print(f"✗ Video export failed:")
+                traceback.print_exc()
+                messagebox.showerror("Error", f"Failed to export video:\n\n{str(e)}\n\nCheck terminal for details.")
+
+    
+    def export_audio(self):
+        """导出音频WAV文件"""
+        if not self.melody_generator.recorded_notes:
+            messagebox.showwarning("No Audio", "No audio to export!")
+            return
+        
+        file_path = filedialog.asksaveasfilename(
+            title="Export Audio",
+            defaultextension=".wav",
+            filetypes=[
+                ("WAV Audio", "*.wav"),
+                ("All Files", "*.*")
+            ]
+        )
+        
+        if file_path:
+            try:
+                import numpy as np
+                import wave
+                
+                self.status_canvas.itemconfig(self.status_text_id,
+                    text="[ EXPORTING ] Rendering audio...")
+                self.root.update()
+                
+                # 生成音频波形
+                sample_rate = 44100
+                audio_data = []
+                
+                for note_info in self.melody_generator.recorded_notes:
+                    pitch = note_info['pitch']
+                    duration = note_info['duration']
+                    velocity = note_info['velocity']
+                    
+                    # 生成方波音符
+                    frequency = 440.0 * (2 ** ((pitch - 69) / 12.0))
+                    num_samples = int(duration * sample_rate)
+                    t = np.linspace(0, duration, num_samples, False)
+                    
+                    # 方波生成（8-bit风格）
+                    wave_data = np.sign(np.sin(2 * np.pi * frequency * t))
+                    wave_data *= (velocity / 127.0) * 0.3  # 音量调整
+                    
+                    audio_data.extend(wave_data)
+                
+                # 转换为16-bit PCM
+                audio_data = np.array(audio_data)
+                audio_data = np.int16(audio_data * 32767)
+                
+                # 保存WAV文件
+                with wave.open(file_path, 'w') as wav_file:
+                    wav_file.setnchannels(1)  # 单声道
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(audio_data.tobytes())
+                
+                duration_sec = len(audio_data) / sample_rate
+                messagebox.showinfo("Success", 
+                    f"Audio exported successfully!\n\n"
+                    f"Notes: {len(self.melody_generator.recorded_notes)}\n"
+                    f"Duration: {duration_sec:.2f}s\n"
+                    f"Sample Rate: {sample_rate} Hz\n"
+                    f"File: {file_path}")
+                
+                self.status_canvas.itemconfig(self.status_text_id,
+                    text=f"[ EXPORTED ] Audio saved to {os.path.basename(file_path)}")
+                    
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("Error", f"Failed to export audio: {str(e)}")
     
     def reset_and_load(self):
         """Reset and load new image"""
