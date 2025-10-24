@@ -1056,6 +1056,27 @@ class Image2MelodyApp:
             fill=self.hover_beige,
             anchor=tk.NE
         )
+        
+        # 添加键盘控制提示（在状态栏下方）
+        control_y = text_y + 40
+        control_hints = [
+            "W/S/A/D: Pitch",
+            "↑/↓/←/→: Speed",
+            "Space: Pause",
+            "R: Reset",
+            "ESC: Exit"
+        ]
+        
+        for i, hint in enumerate(control_hints):
+            hint_y = control_y + i * 18
+            self.image_canvas.create_text(
+                text_x, hint_y,
+                text=hint,
+                font=self.pixel_font_small,
+                fill=self.primary_pink,
+                anchor=tk.NE,
+                tags="camera_control_hint"
+            )
     
     def update_camera_preview(self):
         """更新主 canvas 上的摄像头预览，并根据颜色生成实时声音"""
@@ -1089,10 +1110,11 @@ class Image2MelodyApp:
                 # 更新状态显示
                 self.update_camera_status()
                 
-                # 确保右上角状态显示在最上层
+                # 确保右上角状态显示和控制提示在最上层
                 if hasattr(self, 'camera_status_bg'):
                     self.image_canvas.tag_raise(self.camera_status_bg)
                     self.image_canvas.tag_raise(self.camera_status_text)
+                    self.image_canvas.tag_raise("camera_control_hint")
         except Exception as e:
             # 捕获任何错误（例如窗口关闭）
             print(f"⚠️  Camera preview error: {e}")
@@ -1626,10 +1648,11 @@ class Image2MelodyApp:
             # 移除摄像头控制按钮
             self.image_canvas.delete("camera_control")
             
-            # 移除右上角状态显示
+            # 移除右上角状态显示和控制提示
             if hasattr(self, 'camera_status_bg'):
                 self.image_canvas.delete(self.camera_status_bg)
                 self.image_canvas.delete(self.camera_status_text)
+            self.image_canvas.delete("camera_control_hint")
             
             # 保存捕获的图片
             self.current_image = Image.fromarray(self.camera_frame)
@@ -1654,10 +1677,11 @@ class Image2MelodyApp:
         # 移除摄像头控制按钮
         self.image_canvas.delete("camera_control")
         
-        # 移除右上角状态显示
+        # 移除右上角状态显示和控制提示
         if hasattr(self, 'camera_status_bg'):
             self.image_canvas.delete(self.camera_status_bg)
             self.image_canvas.delete(self.camera_status_text)
+        self.image_canvas.delete("camera_control_hint")
         
         # 解绑键盘控制
         self.unbind_camera_keyboard_controls()
@@ -1698,10 +1722,11 @@ class Image2MelodyApp:
             # 移除摄像头控制按钮
             self.image_canvas.delete("camera_control")
             
-            # 移除右上角状态显示
+            # 移除右上角状态显示和控制提示
             if hasattr(self, 'camera_status_bg'):
                 self.image_canvas.delete(self.camera_status_bg)
                 self.image_canvas.delete(self.camera_status_text)
+            self.image_canvas.delete("camera_control_hint")
             
             # 解绑键盘控制
             self.unbind_camera_keyboard_controls()
