@@ -774,27 +774,30 @@ class Image2MelodyApp:
             self.reset_and_load()
     
     def setup_keyboard_bindings(self):
-        """Setup keyboard bindings"""
+        """Setup keyboard bindings for load image mode"""
+        # 只绑定到 root，避免重复触发（如果同时绑定 root 和 canvas，会触发两次）
+        widget = self.root
+        
         # Pitch control
-        self.root.bind('<w>', lambda e: self.adjust_octave(12))
-        self.root.bind('<W>', lambda e: self.adjust_octave(12))
-        self.root.bind('<s>', lambda e: self.adjust_octave(-12))
-        self.root.bind('<S>', lambda e: self.adjust_octave(-12))
-        self.root.bind('<a>', lambda e: self.adjust_octave(-1))
-        self.root.bind('<A>', lambda e: self.adjust_octave(-1))
-        self.root.bind('<d>', lambda e: self.adjust_octave(1))
-        self.root.bind('<D>', lambda e: self.adjust_octave(1))
+        widget.bind('<w>', lambda e: self.adjust_octave(12))
+        widget.bind('<W>', lambda e: self.adjust_octave(12))
+        widget.bind('<s>', lambda e: self.adjust_octave(-12))
+        widget.bind('<S>', lambda e: self.adjust_octave(-12))
+        widget.bind('<a>', lambda e: self.adjust_octave(-1))
+        widget.bind('<A>', lambda e: self.adjust_octave(-1))
+        widget.bind('<d>', lambda e: self.adjust_octave(1))
+        widget.bind('<D>', lambda e: self.adjust_octave(1))
         
         # Speed control
-        self.root.bind('<Up>', lambda e: self.adjust_speed(-1.0))     # 上键：加快一倍（减少 speed_multiplier）
-        self.root.bind('<Down>', lambda e: self.adjust_speed(1.0))    # 下键：减慢一倍（增加 speed_multiplier）
-        self.root.bind('<Right>', lambda e: self.adjust_speed(-0.1))  # 右键：加快0.1倍
-        self.root.bind('<Left>', lambda e: self.adjust_speed(0.1))    # 左键：减慢0.1倍
-        self.root.bind('<r>', lambda e: self.reset_speed())           # 重置速度
-        self.root.bind('<R>', lambda e: self.reset_speed())
+        widget.bind('<Up>', lambda e: self.adjust_speed(-0.2))     # 上键：加快（减少 speed_multiplier）
+        widget.bind('<Down>', lambda e: self.adjust_speed(0.2))    # 下键：减慢（增加 speed_multiplier）
+        widget.bind('<Right>', lambda e: self.adjust_speed(-0.1))  # 右键：微调加快
+        widget.bind('<Left>', lambda e: self.adjust_speed(0.1))    # 左键：微调减慢
+        widget.bind('<r>', lambda e: self.reset_speed())           # 重置速度
+        widget.bind('<R>', lambda e: self.reset_speed())
         
         # Pause
-        self.root.bind('<space>', lambda e: self.toggle_pause())
+        widget.bind('<space>', lambda e: self.toggle_pause())
     
     def show_mac_dialog(self, title, message, dialog_type="info", buttons=None):
         """
@@ -918,11 +921,14 @@ class Image2MelodyApp:
         if self.is_animating:
             self.octave_shift += shift
             self.octave_shift = max(-24, min(24, self.octave_shift))
-            self.octave_canvas.itemconfig(self.octave_display_id, 
-                                         text=f"PITCH: {self.octave_shift:+d}")
-            self.octave_canvas.update_idletasks()  # 先处理任务队列
-            self.octave_canvas.update()  # 强制立即刷新显示
-            self.root.update_idletasks()  # 也刷新主窗口
+            # 更新显示文本
+            new_text = f"PITCH: {self.octave_shift:+d}"
+            self.octave_canvas.itemconfig(self.octave_display_id, text=new_text)
+            # 强制多次刷新以确保显示更新
+            self.octave_canvas.update_idletasks()
+            self.octave_canvas.update()
+            self.root.update_idletasks()
+            self.root.update()
             print(f"🎵 Pitch: {self.octave_shift:+d}")
     
     def adjust_speed(self, delta):
@@ -937,23 +943,35 @@ class Image2MelodyApp:
             # 限制速度范围：0.2x (5倍快) 到 3.0x (3倍慢)
             self.speed_multiplier = max(0.2, min(3.0, self.speed_multiplier))
             speed_display = f"{1.0/self.speed_multiplier:.1f}x" if self.speed_multiplier > 0 else "MAX"
-            self.octave_canvas.itemconfig(self.speed_display_id, 
-                                         text=f"SPEED: {speed_display}")
-            self.octave_canvas.update_idletasks()  # 先处理任务队列
-            self.octave_canvas.update()  # 强制立即刷新显示
-            self.root.update_idletasks()  # 也刷新主窗口
+            # 更新显示文本
+            new_text = f"SPEED: {speed_display}"
+            self.octave_canvas.itemconfig(self.speed_display_id, text=new_text)
+            # 强制多次刷新以确保显示更新
+            self.octave_canvas.update_idletasks()
+            self.octave_canvas.update()
+            self.root.update_idletasks()
+            self.root.update()
             print(f"⚡ Speed: {speed_display} (multiplier: {self.speed_multiplier:.2f})")
     
     def reset_speed(self):
-        """重置速度到正常"""
+        """重置速度和音高到正常"""
         if self.is_animating:
+            # 重置速度
             self.speed_multiplier = 1.0
             self.octave_canvas.itemconfig(self.speed_display_id, 
                                          text="SPEED: 1.0x")
-            self.octave_canvas.update_idletasks()  # 先处理任务队列
-            self.octave_canvas.update()  # 强制立即刷新显示
-            self.root.update_idletasks()  # 也刷新主窗口
-            print("⚡ Speed reset to 1.0x")
+            
+            # 重置音高
+            self.octave_shift = 0
+            self.octave_canvas.itemconfig(self.octave_display_id, 
+                                         text="PITCH: +0")
+            
+            # 强制多次刷新以确保显示更新
+            self.octave_canvas.update_idletasks()
+            self.octave_canvas.update()
+            self.root.update_idletasks()
+            self.root.update()
+            print("🔄 Reset: Speed = 1.0x, Pitch = 0")
     
     def toggle_pause(self):
         """Pause/resume animation"""
@@ -1225,25 +1243,25 @@ class Image2MelodyApp:
         print("   W/S/A/D = pitch | ↑/↓/←/→ = speed | SPACE = pause | R = reset | ESC = back")
     
     def _camera_key_w(self, event):
-        """W键：升高八度"""
+        """W键：升高八度（+12半音）"""
         print(f"🔵 Key pressed: W")
-        self.adjust_camera_octave(+1)
+        self.adjust_camera_octave(+12)
         return "break"
     
     def _camera_key_s(self, event):
-        """S键：降低八度"""
+        """S键：降低八度（-12半音）"""
         print(f"🔵 Key pressed: S")
-        self.adjust_camera_octave(-1)
+        self.adjust_camera_octave(-12)
         return "break"
     
     def _camera_key_a(self, event):
-        """A键：降低八度"""
+        """A键：降低半音（-1半音）"""
         print(f"🔵 Key pressed: A")
         self.adjust_camera_octave(-1)
         return "break"
     
     def _camera_key_d(self, event):
-        """D键：升高八度"""
+        """D键：升高半音（+1半音）"""
         print(f"🔵 Key pressed: D")
         self.adjust_camera_octave(+1)
         return "break"
@@ -1291,9 +1309,9 @@ class Image2MelodyApp:
         return "break"
     
     def adjust_camera_octave(self, delta):
-        """调整摄像头音高（八度）"""
+        """调整摄像头音高（半音为单位）"""
         if hasattr(self, 'camera_active') and self.camera_active:
-            self.camera_octave_shift += delta * 12  # 每次移动一个八度（12个半音）
+            self.camera_octave_shift += delta  # 直接按半音调整
             self.camera_octave_shift = max(-24, min(24, self.camera_octave_shift))  # 限制在±2个八度
             print(f"🎵 Pitch: {self.camera_octave_shift:+d} semitones")
             
@@ -2181,6 +2199,14 @@ class Image2MelodyApp:
             self.speed_multiplier = 1.0
             self.hide_main_buttons = True  # 动画播放时隐藏主菜单按钮
             
+            # 重新绑定键盘控制（以防被 camera 模式解绑）
+            print("⌨️  Re-binding keyboard controls for load image mode...")
+            self.setup_keyboard_bindings()
+            
+            # 确保窗口获得焦点以响应键盘事件
+            self.root.focus_force()
+            self.image_canvas.focus_set()
+            
             # 立即删除主菜单按钮（如果存在）
             self.image_canvas.delete("load_button")
             self.image_canvas.delete("camera_button")
@@ -2373,9 +2399,9 @@ class Image2MelodyApp:
         # 动画速度控制（基于音频轨颜色 + 速度倍率）
         base_duration = int(50 + (audio_g / 255.0) * 20)  # 基础 50-70ms
         
-        # 中间段加快（30%-70%进度时速度加倍）
+        # 中间段加快（30%-70%进度时速度显著加快）
         if 0.3 <= progress <= 0.7:
-            base_duration = int(base_duration * 0.5)  # 中间段快2倍
+            base_duration = int(base_duration * 0.25)  # 中间段快4倍（从2倍改为4倍）
         
         # 应用用户控制的速度倍率
         duration_ms = int(base_duration * self.speed_multiplier)

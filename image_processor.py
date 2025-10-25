@@ -247,3 +247,49 @@ class ImageProcessor:
             img_with_points.save(save_path)
         
         return img_with_points
+
+    def extract_rgb_by_columns(self, image_path, pixel_size=None):
+        """
+        按列（Y轴）读取图片，生成和弦数据
+        每一列的所有像素生成一个和弦
+        从左到右生成旋律
+        
+        返回: list of list of (r, g, b, a)
+        每个子列表代表一列的所有像素颜色
+        """
+        if pixel_size is None:
+            pixel_size = self.pixel_size
+        
+        # 像素化图像
+        pixelated_img, (grid_width, grid_height) = self.pixelate_image(image_path, pixel_size)
+        
+        # 从缩小的网格中提取每列的所有像素
+        img = Image.open(image_path)
+        
+        # 保留原始模式
+        has_alpha = img.mode == 'RGBA'
+        if img.mode not in ['RGB', 'RGBA']:
+            img = img.convert('RGB')
+            has_alpha = False
+        
+        # 缩小到网格大小
+        img_small = img.resize((grid_width, grid_height), Image.Resampling.NEAREST)
+        
+        columns_data = []
+        
+        # 遍历每一列（从左到右）
+        for x in range(grid_width):
+            column_pixels = []
+            # 遍历该列的所有行（从上到下）
+            for y in range(grid_height):
+                pixel = img_small.getpixel((x, y))
+                if has_alpha:
+                    r, g, b, a = pixel
+                    column_pixels.append((r, g, b, a))
+                else:
+                    r, g, b = pixel
+                    column_pixels.append((r, g, b, 255))
+            
+            columns_data.append(column_pixels)
+        
+        return columns_data, pixelated_img, (grid_width, grid_height)

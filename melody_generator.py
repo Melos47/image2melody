@@ -350,3 +350,144 @@ class MelodyGenerator:
                 os.remove(self.temp_midi_path)
             except:
                 pass
+    
+    def generate_chord_from_column(self, column_pixels, octave_shift=0):
+        """
+        从一列像素生成和弦
+        column_pixels: list of (r, g, b, a) 元组
+        octave_shift: 音高偏移（半音）
+        
+        返回: list of (pitch, velocity, duration) 元组
+        """
+        chord_notes = []
+        
+        for r, g, b, a in column_pixels:
+            # 使用HSV转换获取音符
+            pitch, velocity, duration = self.rgba_to_note_hsv(r, g, b, a)
+            
+            # 应用音高偏移
+            adjusted_pitch = max(0, min(127, pitch + octave_shift))
+            
+            chord_notes.append((adjusted_pitch, velocity, duration))
+        
+        return chord_notes
+    
+    def play_chord_direct(self, chord_notes, max_duration):
+        """
+        直接播放和弦（同时播放多个音符）
+        chord_notes: list of (pitch, velocity, duration) 元组
+        max_duration: 和弦的最大持续时间（秒）
+        """
+        if not self.audio_initialized:
+            return
+        
+        sounds = []
+        
+        try:
+            # 为和弦中的每个音符生成声音
+            for pitch, velocity, duration in chord_notes:
+                frequency = self.midi_note_to_frequency(pitch)
+                volume = velocity / 127.0 * 0.2  # 降低音量避免和弦过响
+                note_duration = min(duration / 4.0, max_duration)  # 使用较短的时长
+                
+                sound = self.generate_square_wave(frequency, note_duration, volume)
+                sounds.append(sound)
+            
+            # 同时播放所有音符
+            for sound in sounds:
+                sound.play()
+                
+        except Exception as e:
+            print(f"播放和弦失败: {e}")
+    
+    def generate_melody_from_columns(self, columns_data, octave_shift=0):
+        """
+        从列数据生成旋律
+        columns_data: list of list of (r, g, b, a)
+        每个子列表代表一列的所有像素
+        
+        返回: MIDI文件和音符信息
+        """
+        # 创建MIDI文件
+        self.midi_file = MIDIFile(1)  # 1个轨道
+        track = 0
+        channel = 0
+        time = 0
+        self.midi_file.addTempo(track, time, self.tempo)
+        
+        self.notes = []
+        current_time = 0
+        
+        # 遍历每一列（从左到右）
+        for col_index, column_pixels in enumerate(columns_data):
+            # 为这一列生成和弦
+            chord_notes = self.generate_chord_from_column(column_pixels, octave_shift)
+            
+            # 计算和弦持续时间（使用列中所有音符的平均时长）
+            avg_duration = sum(d for _, _, d in chord_notes) / len(chord_notes) if chord_notes else 0.5
+            chord_duration = min(1.0, max(0.25, avg_duration))
+            
+            # 将和弦中的所有音符添加到MIDI文件（同一时间开始）
+            for pitch, velocity, duration in chord_notes:
+                self.midi_file.addNote(track, channel, pitch, current_time, chord_duration, velocity)
+                
+                # 记录音符信息
+                self.notes.append({
+                    'index': len(self.notes),
+                    'column': col_index,
+                    'pitch': pitch,
+                    'velocity': velocity,
+                    'duration': chord_duration,
+                    'time': current_time,
+                    'rgb': column_pixels[0][:3] if column_pixels else (0, 0, 0)  # 使用列的第一个像素颜色作为代表
+                })
+            
+            # 移动到下一列的时间
+            current_time += chord_duration
+        
+        # 生成信息文本
+        melody_info = self.generate_chord_melody_info(columns_data)
+        
+        return self.notes, melody_info
+    
+    def generate_chord_melody_info(self, columns_data):
+        """生成和弦旋律信息文本"""
+        if not self.notes:
+            return "No chord melody generated yet."
+        
+        num_columns = len(columns_data)
+        num_notes = len(self.notes)
+        
+        info = f"Chord Melody Generated\n"
+        info += f"{'=' * 50}\n"
+        info += f"Total Columns: {num_columns}\n"
+        info += f"Total Notes: {num_notes}\n"
+        info += f"Average notes per column: {num_notes / num_columns:.1f}\n"
+        info += f"Tempo: {self.tempo} BPM\n"
+        
+        if self.notes:
+            total_duration = self.notes[-1]['time'] + self.notes[-1]['duration']
+            info += f"Total Duration: {total_duration:.2f} beats\n"
+            info += f"Estimated Time: {(total_duration / self.tempo * 60):.2f} seconds\n\n"
+        
+        info += "First 5 Chords:\n"
+        info += f"{'-' * 50}\n"
+        
+        # 按列分组显示前5个和弦
+        current_column = -1
+        chord_count = 0
+        
+        for note in self.notes:
+            if note['column'] != current_column:
+                current_column = note['column']
+                chord_count += 1
+                if chord_count > 5:
+                    break
+                info += f"\nColumn {current_column + 1}:\n"
+            
+            pitch_name = self.midi_note_to_name(note['pitch'])
+            info += f"  {pitch_name:<5} (vel: {note['velocity']:<3}, dur: {note['duration']:.2f})\n"
+        
+        info += f"\n... and {num_columns - 5} more columns\n" if num_columns > 5 else "\n"
+        
+        return info

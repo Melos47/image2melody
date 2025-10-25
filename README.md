@@ -8,12 +8,14 @@
 
 **Transform images into 8-bit melodies with Mac OS Classic aesthetics and glitch art effects**
 
-将图片转换为 8-bit 风格的音乐旋律！基于 HSV 色彩空间，结合 Mac OS Classic 1-bit 美学和 glitch art 动画效果。
+*将图片转换为 8-bit 风格的音乐旋律！基于 HSV 色彩空间，结合 Mac OS Classic 1-bit 美学和 glitch art 动画效果。*
 
-<!-- Add your demo GIF or screenshot here -->
-<!-- ![Demo](docs/images/demo.gif) -->
+<!-- 📸 Add your demo media here! -->
+<!-- ![Main Interface](docs/images/interface.png) -->
+<!-- ![Load Image Demo](docs/images/demo.gif) -->
+<!-- ![Camera Mode](docs/images/camera_mode.gif) -->
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation)
+[Quick Start](#-quick-start) • [Features](#-features) • [How to Use](#-how-to-use) • [Documentation](#-documentation)
 
 </div>
 
