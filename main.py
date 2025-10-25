@@ -920,7 +920,9 @@ class Image2MelodyApp:
             self.octave_shift = max(-24, min(24, self.octave_shift))
             self.octave_canvas.itemconfig(self.octave_display_id, 
                                          text=f"PITCH: {self.octave_shift:+d}")
+            self.octave_canvas.update_idletasks()  # 先处理任务队列
             self.octave_canvas.update()  # 强制立即刷新显示
+            self.root.update_idletasks()  # 也刷新主窗口
             print(f"🎵 Pitch: {self.octave_shift:+d}")
     
     def adjust_speed(self, delta):
@@ -937,7 +939,9 @@ class Image2MelodyApp:
             speed_display = f"{1.0/self.speed_multiplier:.1f}x" if self.speed_multiplier > 0 else "MAX"
             self.octave_canvas.itemconfig(self.speed_display_id, 
                                          text=f"SPEED: {speed_display}")
+            self.octave_canvas.update_idletasks()  # 先处理任务队列
             self.octave_canvas.update()  # 强制立即刷新显示
+            self.root.update_idletasks()  # 也刷新主窗口
             print(f"⚡ Speed: {speed_display} (multiplier: {self.speed_multiplier:.2f})")
     
     def reset_speed(self):
@@ -946,7 +950,9 @@ class Image2MelodyApp:
             self.speed_multiplier = 1.0
             self.octave_canvas.itemconfig(self.speed_display_id, 
                                          text="SPEED: 1.0x")
+            self.octave_canvas.update_idletasks()  # 先处理任务队列
             self.octave_canvas.update()  # 强制立即刷新显示
+            self.root.update_idletasks()  # 也刷新主窗口
             print("⚡ Speed reset to 1.0x")
     
     def toggle_pause(self):
@@ -1018,11 +1024,6 @@ class Image2MelodyApp:
         
         # 创建右上角状态显示
         self.create_camera_status_overlay()
-        
-        # 添加初始日志
-        self.add_camera_log("🎥 Camera initialized")
-        self.add_camera_log("📹 Recording started")
-        self.add_camera_log("🎵 Pitch: 0 | Speed: 1.0x")
         
         # 在主 canvas 上显示摄像头预览
         self.update_camera_preview()
@@ -1133,37 +1134,6 @@ class Image2MelodyApp:
             fill=self.hover_beige,
             anchor=tk.NE
         )
-        
-        # 创建日志显示（在状态框下方，无背景框）
-        log_y_start = bg_y2 + 15
-        log_width = 350
-        
-        log_x1 = text_x - log_width
-        
-        # 日志标题（无背景框，直接浮现）
-        self.image_canvas.create_text(
-            log_x1 + 10, log_y_start + 10,
-            text="[ SYSTEM LOG ]",
-            font=self.pixel_font_small,
-            fill=self.primary_pink,
-            anchor=tk.W,
-            tags="camera_log"
-        )
-        
-        # 日志内容（粉色字体，无背景框）
-        self.camera_log_text = self.image_canvas.create_text(
-            log_x1 + 10, log_y_start + 30,
-            text="",
-            font=("Courier", 9),  # 使用等宽字体模拟代码
-            fill=self.primary_pink,  # 改为粉色
-            anchor=tk.NW,
-            width=log_width - 20,
-            tags="camera_log"
-        )
-        
-        # 初始化日志列表
-        self.camera_logs = []
-        self.max_log_lines = 12  # 最多显示12行日志
     
     def update_camera_preview(self):
         """更新主 canvas 上的摄像头预览，并根据颜色生成实时声音"""
@@ -1325,10 +1295,7 @@ class Image2MelodyApp:
         if hasattr(self, 'camera_active') and self.camera_active:
             self.camera_octave_shift += delta * 12  # 每次移动一个八度（12个半音）
             self.camera_octave_shift = max(-24, min(24, self.camera_octave_shift))  # 限制在±2个八度
-            
-            log_msg = f"🎵 Pitch: {self.camera_octave_shift:+d} semitones"
-            print(log_msg)
-            self.add_camera_log(log_msg)
+            print(f"🎵 Pitch: {self.camera_octave_shift:+d} semitones")
             
             # 立即更新状态显示
             self.update_camera_status()
@@ -1338,10 +1305,7 @@ class Image2MelodyApp:
         if hasattr(self, 'camera_active') and self.camera_active:
             self.camera_speed += delta
             self.camera_speed = max(0.2, min(3.0, self.camera_speed))  # 限制在 0.2x - 3.0x
-            
-            log_msg = f"⚡ Speed: {self.camera_speed:.1f}x"
-            print(log_msg)
-            self.add_camera_log(log_msg)
+            print(f"⚡ Speed: {self.camera_speed:.1f}x")
             
             # 立即更新状态显示
             self.update_camera_status()
@@ -1367,35 +1331,12 @@ class Image2MelodyApp:
                 # 忽略窗口已销毁的错误
                 pass
     
-    def add_camera_log(self, message):
-        """添加日志消息到摄像头日志框"""
-        if not hasattr(self, 'camera_logs'):
-            return
-        
-        try:
-            # 添加新日志
-            self.camera_logs.append(message)
-            
-            # 只保留最新的 N 行
-            if len(self.camera_logs) > self.max_log_lines:
-                self.camera_logs = self.camera_logs[-self.max_log_lines:]
-            
-            # 更新日志显示
-            log_text = "\n".join(self.camera_logs)
-            self.image_canvas.itemconfig(self.camera_log_text, text=log_text)
-            self.image_canvas.update()
-        except:
-            pass
-    
     def toggle_camera_pause(self):
         """暂停/继续摄像头"""
         if hasattr(self, 'camera_active') and self.camera_active:
             self.camera_paused = not self.camera_paused
             status = "PAUSED" if self.camera_paused else "RESUMED"
-            
-            log_msg = f"⏸️  Camera {status}"
-            print(log_msg)
-            self.add_camera_log(log_msg)
+            print(f"⏸️  Camera {status}")
             
             # 更新状态显示
             self.update_camera_status()
@@ -1545,10 +1486,8 @@ class Image2MelodyApp:
             # 立即更新状态显示
             self.update_camera_status()
             
-            log_msg = "🔄 Reset: Pitch=0, Speed=1.0x"
-            print(log_msg)
-            self.add_camera_log(log_msg)
-            self.add_camera_log("📦 Frames cleared")
+            print("🔄 Reset: Pitch=0, Speed=1.0x")
+            print("📦 Frames cleared")
             
             # 使用自定义对话框
             self.show_reset_confirmation_dialog()
@@ -1669,8 +1608,7 @@ class Image2MelodyApp:
                 # 每30个音符记录一次日志
                 self.camera_note_log_counter += 1
                 if self.camera_note_log_counter % 30 == 0:
-                    log_msg = f"♪ Note: {pitch} | RGB({int(avg_r)},{int(avg_g)},{int(avg_b)})"
-                    self.add_camera_log(log_msg)
+                    print(f"♪ Note: {pitch} | RGB({int(avg_r)},{int(avg_g)},{int(avg_b)})")
                 
                 # 每100个音符输出一次进度
                 if len(self.camera_audio_notes) % 100 == 0:
@@ -2092,13 +2030,11 @@ class Image2MelodyApp:
         if hasattr(self, 'camera_active') and self.camera_active:
             self.image_canvas.create_image(x, y, anchor=tk.NW, image=self.photo_image, tags="camera_image")
             
-            # 确保状态显示和日志在最上层
+            # 确保状态显示在最上层
             if hasattr(self, 'camera_status_bg'):
                 self.image_canvas.tag_raise(self.camera_status_bg)
                 self.image_canvas.tag_raise(self.camera_status_text)
                 self.image_canvas.tag_raise("camera_control_hint")
-            # 日志直接浮现，无需背景框
-            self.image_canvas.tag_raise("camera_log")
         else:
             self.image_canvas.create_image(x, y, anchor=tk.NW, image=self.photo_image)
     

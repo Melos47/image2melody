@@ -1,80 +1,48 @@
-# 🎨 Image2Melody# 🎨 Image2Melody - 图像到旋律转换器# Image to 8-bit Melody Converter
+# 🎨 Image2Melody
 
+<div align="center">
 
+![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![macOS](https://img.shields.io/badge/macOS-Compatible-silver.svg)
 
-**Transform images into 8-bit melodies** with Mac OS Classic aesthetics and glitch art effects.
+**Transform images into 8-bit melodies with Mac OS Classic aesthetics and glitch art effects**
 
+将图片转换为 8-bit 风格的音乐旋律！基于 HSV 色彩空间，结合 Mac OS Classic 1-bit 美学和 glitch art 动画效果。
 
+<!-- Add your demo GIF or screenshot here -->
+<!-- ![Demo](docs/images/demo.gif) -->
 
-<div align="center">将图片转换为 8-bit 风格的音乐旋律！基于 HSV 色彩空间，结合 Mac OS Classic 1-bit 美学和 glitch art 动画效果。将图片转换为8-bit风格的音乐旋律！基于HSV色彩空间生成独特的音符。
+[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Documentation](#-documentation)
 
+</div>
 
+---
 
-[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+## ✨ Features
 
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-[![macOS](https://img.shields.io/badge/macOS-Compatible-silver.svg)](https://www.apple.com/macos/)<div align="center">## ✨ 最新更新 (v3.0 - Dithering & Moshing Edition)
-
-
-
-![Demo](docs/demo.gif)
-
-
-
-</div>[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)- 🎨 **1-Bit Floyd-Steinberg Dithering**: 使用经典误差扩散算法将图片转换为黑白点阵
-
-
-
----[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)- 🌈 **Mac OS Classic 主题**: 复古Mac风格界面，粉色边框和米色按钮
-
-
-
-## ✨ Features[![macOS](https://img.shields.io/badge/macOS-Compatible-silver.svg)](https://www.apple.com/macos/)- ⚡ **Data Moshing 效果**: 渐进式数据损坏动画，创造glitch art美学
-
-
-
-### 🎨 Visual Effects- 🎭 **Progressive Glitch Curve**: 动画从清晰到混沌再到清晰的视觉叙事
-
-- **Mac OS Classic UI** - Retro pink borders and beige buttons
-
-- **1-bit Pixelation** - 10×10 pixel blocks with dithering patterns</div>- 💫 **三种Glitch类型**: 像素位移、色彩通道偏移、扫描线损坏
-
+### 🎨 Visual Effects
+- **Mac OS Classic UI** - Retro pink borders and beige buttons inspired by vintage Mac OS
+- **1-bit Pixelation** - 10×10 pixel blocks with Floyd-Steinberg dithering patterns
 - **Glitch Art Animation** - RGB channel separation, scanline corruption, pixel displacement
-
-- **Particle Shift Effects** - Subtle 1-bit style movements inspired by wiredfriend.neocities.org
-
-- **Fade Trail** - Gradually fading visual traces with transparency
-
----### v2.0 功能
+- **Progressive Data Moshing** - Dynamic glitch intensity that follows a curve (0% → 21% → 0%)
+- **Fade Trail Effects** - Gradually fading visual traces with transparency
 
 ### 🎵 Music Generation
-
-- **Dual-Track System** - Visual track (1-bit style) + Audio track (original HSV)- 🎨 **HSV色彩模型**: 基于色相、饱和度、明度生成音符
-
+- **Dual-Track System** - Visual track (1-bit style) + Audio track (original HSV data)
 - **HSV Color Mapping**:
-
-  - **Hue** → Pitch (musical note)## ✨ 核心特性- 💾 **保存功能**: 将生成的旋律保存为MIDI文件
-
-  - **Saturation** → Velocity (volume)
-
-  - **Value** → Duration + Octave- 🎵 **实时播放**: 动画过程中实时播放音符
-
+  - **Hue** → Pitch (musical note from pentatonic scale)
+  - **Saturation** → Velocity (volume/intensity)
+  - **Value** → Duration + Octave selection
 - **Real-time Playback** - 8-bit square wave synthesis via pygame
+- **MIDI Export** - Standard .mid format compatible with all DAWs
 
-- **MIDI Export** - Standard .mid format compatible with all DAWs### 🎨 视觉效果- 🎹 **键盘控制**: WASD调整音高，空格暂停
-
-
-
-### ⌨️ Interactive Controls- **Mac OS Classic 风格界面** - 复古粉色边框和米色按钮- 📊 **调试输出**: 查看每个像素的HSV和音符信息
-
-- **Pitch**: `W`/`S` (±12 semitones), `A`/`D` (±1 semitone)
-
-- **Speed**: `↑↓←→` (adjust), `R` (reset)- **1-bit 像素化** - 10×10 像素块，带抖动图案纹理
-
-- **Playback**: `Space` (pause/resume)
-
-- **Live Display**: Real-time speed and pitch indicators- **Glitch Art 动画** - RGB 通道分离、扫描线故障、像素位移## 功能特点
+### ⌨️ Interactive Controls
+- **Pitch Control**: `W`/`S` (±12 semitones/octave), `A`/`D` (±1 semitone)
+- **Speed Control**: `↑↓` (±0.2x), `←→` (±0.1x fine tune), `R` (reset)
+- **Playback Control**: `Space` (pause/resume), `ESC` (back to menu)
+- **Live Display**: Real-time speed and pitch indicators in status bar
+- **Auto-Reset**: Speed and pitch automatically reset after completion## 功能特点
 
 
 
