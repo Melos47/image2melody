@@ -657,6 +657,15 @@ class Image2MelodyApp:
     
     def draw_load_button(self):
         """Draw Mac OS Classic style load button in center of canvas"""
+        # 如果标记了隐藏主菜单按钮，直接返回
+        if hasattr(self, 'hide_main_buttons') and self.hide_main_buttons:
+            return
+        # 如果在摄像头模式或动画播放中，不显示按钮
+        if hasattr(self, 'camera_active') and self.camera_active:
+            return
+        if hasattr(self, 'is_animating') and self.is_animating:
+            return
+        
         self.image_canvas.delete("all")
         
         self.image_canvas.update()
@@ -777,10 +786,10 @@ class Image2MelodyApp:
         self.root.bind('<D>', lambda e: self.adjust_octave(1))
         
         # Speed control
-        self.root.bind('<Up>', lambda e: self.adjust_speed(0.2))      # 加快
-        self.root.bind('<Down>', lambda e: self.adjust_speed(-0.2))   # 减慢
-        self.root.bind('<Left>', lambda e: self.adjust_speed(-0.1))   # 稍慢
-        self.root.bind('<Right>', lambda e: self.adjust_speed(0.1))   # 稍快
+        self.root.bind('<Up>', lambda e: self.adjust_speed(-1.0))     # 上键：加快一倍（减少 speed_multiplier）
+        self.root.bind('<Down>', lambda e: self.adjust_speed(1.0))    # 下键：减慢一倍（增加 speed_multiplier）
+        self.root.bind('<Right>', lambda e: self.adjust_speed(-0.1))  # 右键：加快0.1倍
+        self.root.bind('<Left>', lambda e: self.adjust_speed(0.1))    # 左键：减慢0.1倍
         self.root.bind('<r>', lambda e: self.reset_speed())           # 重置速度
         self.root.bind('<R>', lambda e: self.reset_speed())
         
@@ -911,9 +920,16 @@ class Image2MelodyApp:
             self.octave_shift = max(-24, min(24, self.octave_shift))
             self.octave_canvas.itemconfig(self.octave_display_id, 
                                          text=f"PITCH: {self.octave_shift:+d}")
+            self.octave_canvas.update()  # 强制立即刷新显示
+            print(f"🎵 Pitch: {self.octave_shift:+d}")
     
     def adjust_speed(self, delta):
-        """调整动画速度"""
+        """调整动画速度
+        speed_multiplier 是延迟倍数：
+        - 减小 speed_multiplier = 加快动画 (Up/Right)
+        - 增大 speed_multiplier = 减慢动画 (Down/Left)
+        - 显示速度 = 1.0 / speed_multiplier
+        """
         if self.is_animating:
             self.speed_multiplier += delta
             # 限制速度范围：0.2x (5倍快) 到 3.0x (3倍慢)
@@ -921,7 +937,8 @@ class Image2MelodyApp:
             speed_display = f"{1.0/self.speed_multiplier:.1f}x" if self.speed_multiplier > 0 else "MAX"
             self.octave_canvas.itemconfig(self.speed_display_id, 
                                          text=f"SPEED: {speed_display}")
-            print(f"⚡ Speed: {speed_display}")
+            self.octave_canvas.update()  # 强制立即刷新显示
+            print(f"⚡ Speed: {speed_display} (multiplier: {self.speed_multiplier:.2f})")
     
     def reset_speed(self):
         """重置速度到正常"""
@@ -929,6 +946,7 @@ class Image2MelodyApp:
             self.speed_multiplier = 1.0
             self.octave_canvas.itemconfig(self.speed_display_id, 
                                          text="SPEED: 1.0x")
+            self.octave_canvas.update()  # 强制立即刷新显示
             print("⚡ Speed reset to 1.0x")
     
     def toggle_pause(self):
@@ -985,13 +1003,26 @@ class Image2MelodyApp:
         self.camera_octave_shift = 0  # 摄像头模式的音高偏移
         self.camera_speed = 1.0  # 摄像头音频播放速度倍率
         
+        # 标记：禁止显示主菜单按钮
+        self.hide_main_buttons = True
+        
+        # 立即删除主菜单按钮
+        self.image_canvas.delete("load_button")
+        self.image_canvas.delete("camera_button")
+        
         # 初始化录制状态
         self.camera_recording = True
         self.camera_frames = []
         self.camera_audio_notes = []
+        self.camera_note_log_counter = 0  # 用于控制日志频率
         
         # 创建右上角状态显示
         self.create_camera_status_overlay()
+        
+        # 添加初始日志
+        self.add_camera_log("🎥 Camera initialized")
+        self.add_camera_log("📹 Recording started")
+        self.add_camera_log("🎵 Pitch: 0 | Speed: 1.0x")
         
         # 在主 canvas 上显示摄像头预览
         self.update_camera_preview()
@@ -1008,30 +1039,65 @@ class Image2MelodyApp:
         if hasattr(self, 'camera_status_bg'):
             self.image_canvas.delete(self.camera_status_bg)
             self.image_canvas.delete(self.camera_status_text)
+        self.image_canvas.delete("camera_control_hint")
         
         # 创建背景矩形（粉色边框 + 黑色背景）
         padding = 15
         text_x = self.image_canvas.winfo_width() - padding
-        text_y = padding + 10
+        base_y = padding + 10
         
-        # 临时创建文本来测量尺寸
-        temp_text = self.image_canvas.create_text(
-            text_x, text_y,
+        # 键盘控制提示（在最上面）
+        control_hints = [
+            "W/S/A/D: Pitch | ↑/↓/←/→: Speed",
+            "Space: Pause | R: Reset | ESC: Exit"
+        ]
+        
+        # 计算所有文本的边界框
+        line_height = 16
+        hint_y_start = base_y
+        status_y = hint_y_start + len(control_hints) * line_height + 10
+        
+        # 创建临时文本来测量整体尺寸
+        temp_texts = []
+        for i, hint in enumerate(control_hints):
+            temp = self.image_canvas.create_text(
+                text_x, hint_y_start + i * line_height,
+                text=hint,
+                font=self.pixel_font_small,
+                fill=self.primary_pink,
+                anchor=tk.NE
+            )
+            temp_texts.append(temp)
+        
+        temp_status = self.image_canvas.create_text(
+            text_x, status_y,
             text="[ RECORDING ] Pitch: +24 | Speed: 3.0x",
             font=self.pixel_font_small,
             fill=self.hover_beige,
             anchor=tk.NE
         )
-        bbox = self.image_canvas.bbox(temp_text)
-        self.image_canvas.delete(temp_text)
+        temp_texts.append(temp_status)
         
-        if bbox:
-            # 添加内边距
+        # 获取所有文本的联合边界框
+        all_coords = []
+        for temp in temp_texts:
+            bbox = self.image_canvas.bbox(temp)
+            if bbox:
+                all_coords.extend([bbox[0], bbox[1], bbox[2], bbox[3]])
+        
+        # 删除临时文本
+        for temp in temp_texts:
+            self.image_canvas.delete(temp)
+        
+        if all_coords:
+            # 计算整体边界
             pad = 8
-            bg_x1, bg_y1 = bbox[0] - pad, bbox[1] - pad
-            bg_x2, bg_y2 = bbox[2] + pad, bbox[3] + pad
+            bg_x1 = min(all_coords[0::4]) - pad
+            bg_y1 = min(all_coords[1::4]) - pad
+            bg_x2 = max(all_coords[2::4]) + pad
+            bg_y2 = max(all_coords[3::4]) + pad
             
-            # 创建黑色背景
+            # 创建黑色背景框
             self.camera_status_bg = self.image_canvas.create_rectangle(
                 bg_x1, bg_y1, bg_x2, bg_y2,
                 fill=self.bg_black,
@@ -1041,42 +1107,63 @@ class Image2MelodyApp:
         else:
             # 如果无法获取 bbox，使用默认尺寸
             self.camera_status_bg = self.image_canvas.create_rectangle(
-                text_x - 280, text_y - 20,
-                text_x + 10, text_y + 20,
+                text_x - 300, base_y - 8,
+                text_x + 10, status_y + 20,
                 fill=self.bg_black,
                 outline=self.primary_pink,
                 width=2
             )
         
-        # 创建状态文本
-        self.camera_status_text = self.image_canvas.create_text(
-            text_x, text_y,
-            text="[ LIVE ] Pitch: 0 | Speed: 1.0x",
-            font=self.pixel_font_small,
-            fill=self.hover_beige,
-            anchor=tk.NE
-        )
-        
-        # 添加键盘控制提示（在状态栏下方）
-        control_y = text_y + 40
-        control_hints = [
-            "W/S/A/D: Pitch",
-            "↑/↓/←/→: Speed",
-            "Space: Pause",
-            "R: Reset",
-            "ESC: Exit"
-        ]
-        
+        # 创建键盘控制提示文本（在最上面）
         for i, hint in enumerate(control_hints):
-            hint_y = control_y + i * 18
             self.image_canvas.create_text(
-                text_x, hint_y,
+                text_x, hint_y_start + i * line_height,
                 text=hint,
                 font=self.pixel_font_small,
                 fill=self.primary_pink,
                 anchor=tk.NE,
                 tags="camera_control_hint"
             )
+        
+        # 创建状态文本（在提示下方）
+        self.camera_status_text = self.image_canvas.create_text(
+            text_x, status_y,
+            text="[ LIVE ] Pitch: 0 | Speed: 1.0x",
+            font=self.pixel_font_small,
+            fill=self.hover_beige,
+            anchor=tk.NE
+        )
+        
+        # 创建日志显示（在状态框下方，无背景框）
+        log_y_start = bg_y2 + 15
+        log_width = 350
+        
+        log_x1 = text_x - log_width
+        
+        # 日志标题（无背景框，直接浮现）
+        self.image_canvas.create_text(
+            log_x1 + 10, log_y_start + 10,
+            text="[ SYSTEM LOG ]",
+            font=self.pixel_font_small,
+            fill=self.primary_pink,
+            anchor=tk.W,
+            tags="camera_log"
+        )
+        
+        # 日志内容（粉色字体，无背景框）
+        self.camera_log_text = self.image_canvas.create_text(
+            log_x1 + 10, log_y_start + 30,
+            text="",
+            font=("Courier", 9),  # 使用等宽字体模拟代码
+            fill=self.primary_pink,  # 改为粉色
+            anchor=tk.NW,
+            width=log_width - 20,
+            tags="camera_log"
+        )
+        
+        # 初始化日志列表
+        self.camera_logs = []
+        self.max_log_lines = 12  # 最多显示12行日志
     
     def update_camera_preview(self):
         """更新主 canvas 上的摄像头预览，并根据颜色生成实时声音"""
@@ -1110,11 +1197,6 @@ class Image2MelodyApp:
                 # 更新状态显示
                 self.update_camera_status()
                 
-                # 确保右上角状态显示和控制提示在最上层
-                if hasattr(self, 'camera_status_bg'):
-                    self.image_canvas.tag_raise(self.camera_status_bg)
-                    self.image_canvas.tag_raise(self.camera_status_text)
-                    self.image_canvas.tag_raise("camera_control_hint")
         except Exception as e:
             # 捕获任何错误（例如窗口关闭）
             print(f"⚠️  Camera preview error: {e}")
@@ -1127,77 +1209,9 @@ class Image2MelodyApp:
             self.root.after(frame_delay, self.update_camera_preview)
     
     def show_camera_controls(self):
-        """在主 canvas 上显示摄像头控制按钮（4个按钮）"""
-        self.image_canvas.delete("camera_control")
-        
-        canvas_width = self.image_canvas.winfo_width()
-        canvas_height = self.image_canvas.winfo_height()
-        
-        if canvas_width <= 1:
-            canvas_width = 800
-        if canvas_height <= 1:
-            canvas_height = 500
-        
-        # 按钮位置（底部中央，5个按钮横排）
-        center_x = canvas_width // 2
-        bottom_y = canvas_height - 60
-        
-        button_width = 110  # 缩小按钮宽度以容纳5个按钮
-        button_height = 50
-        button_spacing = 12
-        
-        # 计算5个按钮的起始位置
-        total_width = button_width * 5 + button_spacing * 4
-        start_x = center_x - total_width // 2
-        
-        # 按钮配置 [文本, 标签, 回调函数]
-        buttons = [
-            ("PAUSE", "pause_btn", self.toggle_camera_pause),
-            ("SAVE", "save_btn", self.save_camera_recording),
-            ("RESET", "reset_btn", self.reset_camera),
-            ("BACK", "back_btn", self.back_to_menu),
-            ("EXIT", "exit_btn", self.cancel_camera)
-        ]
-        
-        self.camera_button_rects = {}
-        
-        for i, (text, tag, callback) in enumerate(buttons):
-            x = start_x + button_width // 2 + i * (button_width + button_spacing)
-            
-            # 创建按钮矩形
-            rect_id = self.image_canvas.create_rectangle(
-                x - button_width // 2,
-                bottom_y - button_height // 2,
-                x + button_width // 2,
-                bottom_y + button_height // 2,
-                fill=self.hover_beige,
-                outline=self.primary_pink,
-                width=3,
-                tags=f"camera_control {tag}"
-            )
-            
-            self.camera_button_rects[tag] = rect_id
-            
-            # 创建按钮文字
-            self.image_canvas.create_text(
-                x,
-                bottom_y,
-                text=text,
-                font=self.pixel_font_medium,
-                fill=self.bg_black,
-                tags=f"camera_control {tag}"
-            )
-            
-            # 绑定点击事件
-            self.image_canvas.tag_bind(tag, "<Button-1>", lambda e, cb=callback: cb())
-            
-            # Hover 效果
-            self.image_canvas.tag_bind(tag, "<Enter>", 
-                lambda e, rect=rect_id: [self.image_canvas.itemconfig(rect, fill=self.primary_pink),
-                                        self.image_canvas.config(cursor="hand2")])
-            self.image_canvas.tag_bind(tag, "<Leave>", 
-                lambda e, rect=rect_id: [self.image_canvas.itemconfig(rect, fill=self.hover_beige),
-                                        self.image_canvas.config(cursor="")])
+        """在主 canvas 上显示摄像头控制按钮（已禁用 - 只使用键盘控制）"""
+        # 不再显示底部按钮，所有控制通过键盘完成
+        pass
     
     def bind_camera_keyboard_controls(self):
         """绑定摄像头模式的键盘控制"""
@@ -1311,7 +1325,10 @@ class Image2MelodyApp:
         if hasattr(self, 'camera_active') and self.camera_active:
             self.camera_octave_shift += delta * 12  # 每次移动一个八度（12个半音）
             self.camera_octave_shift = max(-24, min(24, self.camera_octave_shift))  # 限制在±2个八度
-            print(f"🎵 Camera octave: {self.camera_octave_shift:+d} semitones")
+            
+            log_msg = f"🎵 Pitch: {self.camera_octave_shift:+d} semitones"
+            print(log_msg)
+            self.add_camera_log(log_msg)
             
             # 立即更新状态显示
             self.update_camera_status()
@@ -1321,7 +1338,10 @@ class Image2MelodyApp:
         if hasattr(self, 'camera_active') and self.camera_active:
             self.camera_speed += delta
             self.camera_speed = max(0.2, min(3.0, self.camera_speed))  # 限制在 0.2x - 3.0x
-            print(f"⚡ Camera speed: {self.camera_speed:.1f}x")
+            
+            log_msg = f"⚡ Speed: {self.camera_speed:.1f}x"
+            print(log_msg)
+            self.add_camera_log(log_msg)
             
             # 立即更新状态显示
             self.update_camera_status()
@@ -1339,20 +1359,43 @@ class Image2MelodyApp:
                     # 强制立即刷新（使用 update() 而不是 update_idletasks()）
                     self.image_canvas.update()
                 
-                # 同时更新底部状态栏显示帧数
-                status_bar_text = f"[ {status} ] Camera | Frames: {len(self.camera_frames)}"
+                # 底部状态栏只显示模式和帧数
+                status_bar_text = f"Camera | Frames: {len(self.camera_frames)}"
                 self.status_canvas.itemconfig(self.status_text_id, text=status_bar_text)
                 self.status_canvas.update()
             except Exception as e:
                 # 忽略窗口已销毁的错误
                 pass
     
+    def add_camera_log(self, message):
+        """添加日志消息到摄像头日志框"""
+        if not hasattr(self, 'camera_logs'):
+            return
+        
+        try:
+            # 添加新日志
+            self.camera_logs.append(message)
+            
+            # 只保留最新的 N 行
+            if len(self.camera_logs) > self.max_log_lines:
+                self.camera_logs = self.camera_logs[-self.max_log_lines:]
+            
+            # 更新日志显示
+            log_text = "\n".join(self.camera_logs)
+            self.image_canvas.itemconfig(self.camera_log_text, text=log_text)
+            self.image_canvas.update()
+        except:
+            pass
+    
     def toggle_camera_pause(self):
         """暂停/继续摄像头"""
         if hasattr(self, 'camera_active') and self.camera_active:
             self.camera_paused = not self.camera_paused
             status = "PAUSED" if self.camera_paused else "RESUMED"
-            print(f"⏸️  Camera {status}")
+            
+            log_msg = f"⏸️  Camera {status}"
+            print(log_msg)
+            self.add_camera_log(log_msg)
             
             # 更新状态显示
             self.update_camera_status()
@@ -1502,7 +1545,10 @@ class Image2MelodyApp:
             # 立即更新状态显示
             self.update_camera_status()
             
-            print("🔄 Camera reset: Pitch=0, Speed=1.0x, Frames cleared")
+            log_msg = "🔄 Reset: Pitch=0, Speed=1.0x"
+            print(log_msg)
+            self.add_camera_log(log_msg)
+            self.add_camera_log("📦 Frames cleared")
             
             # 使用自定义对话框
             self.show_reset_confirmation_dialog()
@@ -1620,6 +1666,12 @@ class Image2MelodyApp:
                     'rgb': (int(avg_r), int(avg_g), int(avg_b))
                 })
                 
+                # 每30个音符记录一次日志
+                self.camera_note_log_counter += 1
+                if self.camera_note_log_counter % 30 == 0:
+                    log_msg = f"♪ Note: {pitch} | RGB({int(avg_r)},{int(avg_g)},{int(avg_b)})"
+                    self.add_camera_log(log_msg)
+                
                 # 每100个音符输出一次进度
                 if len(self.camera_audio_notes) % 100 == 0:
                     print(f"🎵 Recorded {len(self.camera_audio_notes)} notes...")
@@ -1671,6 +1723,8 @@ class Image2MelodyApp:
         """取消摄像头捕获，返回加载界面"""
         # 停止摄像头
         self.camera_active = False
+        self.hide_main_buttons = False  # 允许显示主菜单按钮
+        
         if hasattr(self, 'camera_cap') and self.camera_cap.isOpened():
             self.camera_cap.release()
         
@@ -1716,6 +1770,8 @@ class Image2MelodyApp:
             
             # 关闭摄像头
             self.camera_active = False
+            self.hide_main_buttons = False  # 允许显示主菜单按钮
+            
             if hasattr(self, 'camera_cap') and self.camera_cap.isOpened():
                 self.camera_cap.release()
             
@@ -1727,6 +1783,11 @@ class Image2MelodyApp:
                 self.image_canvas.delete(self.camera_status_bg)
                 self.image_canvas.delete(self.camera_status_text)
             self.image_canvas.delete("camera_control_hint")
+            
+            # 自动重置摄像头 speed 和 pitch
+            self.camera_octave_shift = 0
+            self.camera_speed = 1.0
+            print("🔄 Auto-reset camera: Speed = 1.0x, Pitch = 0")
             
             # 解绑键盘控制
             self.unbind_camera_keyboard_controls()
@@ -2002,7 +2063,13 @@ class Image2MelodyApp:
     
     def display_image(self, image):
         """Display image"""
-        self.image_canvas.delete("all")
+        # 如果是摄像头模式，只删除图像，保留状态显示
+        if hasattr(self, 'camera_active') and self.camera_active:
+            # 删除旧的图像（标记为 "camera_image"）
+            self.image_canvas.delete("camera_image")
+        else:
+            # 非摄像头模式，删除所有内容
+            self.image_canvas.delete("all")
         
         self.image_canvas.update()
         canvas_width = self.image_canvas.winfo_width()
@@ -2020,7 +2087,20 @@ class Image2MelodyApp:
         
         x = (canvas_width - self.photo_image.width()) // 2
         y = (canvas_height - self.photo_image.height()) // 2
-        self.image_canvas.create_image(x, y, anchor=tk.NW, image=self.photo_image)
+        
+        # 在摄像头模式下，给图像添加标签
+        if hasattr(self, 'camera_active') and self.camera_active:
+            self.image_canvas.create_image(x, y, anchor=tk.NW, image=self.photo_image, tags="camera_image")
+            
+            # 确保状态显示和日志在最上层
+            if hasattr(self, 'camera_status_bg'):
+                self.image_canvas.tag_raise(self.camera_status_bg)
+                self.image_canvas.tag_raise(self.camera_status_text)
+                self.image_canvas.tag_raise("camera_control_hint")
+            # 日志直接浮现，无需背景框
+            self.image_canvas.tag_raise("camera_log")
+        else:
+            self.image_canvas.create_image(x, y, anchor=tk.NW, image=self.photo_image)
     
     def start_pixelation_animation(self):
         """Start pixelation animation with original colors - extract top-left pixel of each 40×40 block"""
@@ -2162,7 +2242,17 @@ class Image2MelodyApp:
             self.is_animating = True
             self.animation_paused = False
             self.octave_shift = 0
+            self.speed_multiplier = 1.0
+            self.hide_main_buttons = True  # 动画播放时隐藏主菜单按钮
+            
+            # 立即删除主菜单按钮（如果存在）
+            self.image_canvas.delete("load_button")
+            self.image_canvas.delete("camera_button")
+            
+            # 更新UI显示
             self.octave_canvas.itemconfig(self.octave_display_id, text="PITCH: +0")
+            self.octave_canvas.itemconfig(self.speed_display_id, text="SPEED: 1.0x")
+            self.octave_canvas.update()  # 强制刷新显示
             
             # Reset data moshing state and trace background
             self.glitch_frames = []
@@ -2389,12 +2479,24 @@ class Image2MelodyApp:
         """Finish animation and show save options"""
         self.is_animating = False
         self.animation_paused = False
+        self.hide_main_buttons = False  # 动画结束后允许显示主菜单按钮
         
         # 停止所有正在播放的声音
         try:
             pygame.mixer.stop()
         except:
             pass
+        
+        # 自动重置 speed 和 pitch
+        self.speed_multiplier = 1.0
+        self.octave_shift = 0
+        
+        # 更新UI显示
+        self.octave_canvas.itemconfig(self.octave_display_id, text="PITCH: +0")
+        self.octave_canvas.itemconfig(self.speed_display_id, text="SPEED: 1.0x")
+        self.octave_canvas.update()  # 强制刷新显示
+        
+        print("🔄 Auto-reset: Speed = 1.0x, Pitch = 0")
         
         total_notes = len(self.melody_generator.recorded_notes)
         total_frames = len(self.animation_frames) if self.animation_frames else 0
